@@ -1,5 +1,12 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
-import 'package:audio_waveforms/audio_waveforms.dart';
+import 'package:flutter_audio_waveforms/flutter_audio_waveforms.dart';
+import 'package:flutter/services.dart';
+import 'package:just_waveform/just_waveform.dart';
+import 'package:path/path.dart' as p;
+import 'package:rxdart/rxdart.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'package:flex_color_picker/flex_color_picker.dart';
 import 'dart:io';
@@ -128,8 +135,36 @@ class _PatternViewPageState extends State<PatternViewPage> {
   List<Color> _colors = List<Color>.filled(_costume.length, Color.fromARGB(255, 245, 153, 153));
 
   int? _selectedId;
+  double _multiplier = 1.0;
+  double _previousMultiplier = 1.0;
+  Offset? _scaleOrigin = Offset.zero;
+  double _positionX = 0.0;
 
-  PlayerController controller = PlayerController(); 
+
+  final progressStream = BehaviorSubject<WaveformProgress>();
+
+  @override
+  void initState() {
+    super.initState();
+    _init();
+  }
+
+  Future<void> _init() async {
+
+    final audioFile =
+        File(p.join((await getTemporaryDirectory()).path, 'enooo2.mp3'));
+    try {
+      await audioFile.writeAsBytes(
+          (await rootBundle.load('assets/enooo2.mp3')).buffer.asUint8List());
+      final waveFile =
+          File(p.join((await getTemporaryDirectory()).path, 'waveform.wave'));
+      JustWaveform.extract(audioInFile: audioFile, waveOutFile: waveFile)
+          .listen(progressStream.add, onError: progressStream.addError);
+    } catch (e) {
+      progressStream.addError(e);
+    }
+
+  }
 
   static const _costume = {0: [100, 100], 1: [200, 100]};
 
@@ -139,12 +174,40 @@ class _PatternViewPageState extends State<PatternViewPage> {
     });
   }
 
+  void _onWidthChanged(ScaleUpdateDetails details) {
+    if (details.pointerCount == 2)
+    setState(() {
+      _multiplier = details.horizontalScale * _previousMultiplier;
+    });
+    
+    else if (details.pointerCount == 1)
+    setState(() {
+      _positionX = _positionX + details.focalPointDelta.dx / _multiplier;
+    });
+    print(_positionX);
+  }
+
+  void _onScaleStarted(ScaleStartDetails details) {
+    // if (details.pointerCount > 1)
+    // setState(() {
+    //   _scaleOrigin = details.localFocalPoint;
+    // });
+
+  }
+
+  void _onScaleEnded() {
+    setState(() {
+      _previousMultiplier = _multiplier;
+    });
+  }
+
   void onColorChanged(Color color) {
     setState(() {
       _colors[_selectedId!] = color;
     });
 
     sendPackage("$_selectedId,${color.red},${color.green},${color.blue}");
+    
   }
   
   @override
@@ -188,20 +251,57 @@ class _PatternViewPageState extends State<PatternViewPage> {
         ),
         Expanded(
           child: Center(
-            child: GestureDetector(
-              child: _selectedId == null ? 
-                  AudioFileWaveforms(
-                    size: Size(MediaQuery.of(context).size.width, 100.0),
-                    playerController: controller,
-                    enableSeekGesture: true,
-                    waveformType: WaveformType.long,
-                    waveformData: [],
-                    playerWaveStyle: const PlayerWaveStyle(
-                      fixedWaveColor: Colors.white54,
-                      liveWaveColor: Colors.blueAccent,
-                      spacing: 6,
+            child: _selectedId == null ? StreamBuilder<WaveformProgress>(
+              stream: progressStream,
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Text(
+                      'Error: ${snapshot.error}',
+                      style: Theme.of(context).textTheme.titleLarge,
+                      textAlign: TextAlign.center,
                     ),
-                    )
+                  );
+                }
+                final progress = snapshot.data?.progress ?? 0.0;
+                final waveform = snapshot.data?.waveform;
+                if (waveform == null) {
+                  return Center(
+                    child: Text(
+                      '${(100 * progress).toInt()}%',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                  );
+                }
+
+                return  Column(
+                  children: [
+                    GestureDetector(
+                      onScaleUpdate: (event) => _onWidthChanged(event),
+                      onScaleEnd: (event) => _onScaleEnded(),
+                      onScaleStart: (event) => _onScaleStarted(event),
+                      child: Container(
+                        decoration: BoxDecoration(border: Border.all(width: 1.0, color:  Colors.red)),
+                        child: Transform.scale(
+                          scaleX: max(_multiplier, 1.0),
+                          origin: _scaleOrigin,
+                          child: Transform.translate(
+                            offset: Offset(_positionX, 0.0),
+                            child: PolygonWaveform(
+                              samples: waveform.data.map((e) => e.toDouble()).toList(),
+                              absolute: true,
+                              inactiveColor: Color(0xffcccccc),
+                              height: 100,
+                              width: MediaQuery.of(context).size.width,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            )
                 : ColorPicker(
                     enableShadesSelection: false,
                     onColorChanged: onColorChanged,
@@ -212,7 +312,6 @@ class _PatternViewPageState extends State<PatternViewPage> {
                       ColorPickerType.wheel: true
                       },
                   ),
-            ),
           )
           )
       ],
@@ -220,8 +319,11 @@ class _PatternViewPageState extends State<PatternViewPage> {
   }
 }
 
+
+
 void sendPackage(data) async {
 
   RawDatagramSocket udp = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 4209);
   udp.send(utf8.encode(data), InternetAddress('192.168.43.11'), 4210);
-  print("$data sent.");}
+  print("$data sent.");
+  }
