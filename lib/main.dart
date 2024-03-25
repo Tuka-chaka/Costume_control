@@ -1,12 +1,14 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_audio_waveforms/flutter_audio_waveforms.dart';
 import 'package:flutter/services.dart';
 import 'package:just_waveform/just_waveform.dart';
 import 'package:path/path.dart' as p;
 import 'package:rxdart/rxdart.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:audioplayers/audioplayers.dart';
 
 import 'package:flex_color_picker/flex_color_picker.dart';
 import 'dart:io';
@@ -136,10 +138,14 @@ class _PatternViewPageState extends State<PatternViewPage> {
 
   int? _selectedId;
   double _multiplier = 1.0;
+  double _position = 0.0;
   double _previousMultiplier = 1.0;
-  Offset? _scaleOrigin = Offset.zero;
   double _positionX = 0.0;
+  bool _isPlaying = false;
 
+  static AudioPlayer player = new AudioPlayer();
+
+  
 
   final progressStream = BehaviorSubject<WaveformProgress>();
 
@@ -168,6 +174,13 @@ class _PatternViewPageState extends State<PatternViewPage> {
 
   static const _costume = {0: [100, 100], 1: [200, 100]};
 
+  void _onPlayingChanged() async{
+    _isPlaying? await player.pause() : await player.play(AssetSource("enooo2.mp3"));
+    setState(() {
+      _isPlaying = !_isPlaying;
+    });
+  }
+
   void _onLedTapped(int index) {
     setState(() {
       _selectedId = index;
@@ -184,15 +197,6 @@ class _PatternViewPageState extends State<PatternViewPage> {
     setState(() {
       _positionX = _positionX + details.focalPointDelta.dx / _multiplier;
     });
-    print(_positionX);
-  }
-
-  void _onScaleStarted(ScaleStartDetails details) {
-    // if (details.pointerCount > 1)
-    // setState(() {
-    //   _scaleOrigin = details.localFocalPoint;
-    // });
-
   }
 
   void _onScaleEnded() {
@@ -276,27 +280,61 @@ class _PatternViewPageState extends State<PatternViewPage> {
 
                 return  Column(
                   children: [
-                    GestureDetector(
-                      onScaleUpdate: (event) => _onWidthChanged(event),
-                      onScaleEnd: (event) => _onScaleEnded(),
-                      onScaleStart: (event) => _onScaleStarted(event),
-                      child: Container(
-                        decoration: BoxDecoration(border: Border.all(width: 1.0, color:  Colors.red)),
-                        child: Transform.scale(
-                          scaleX: max(_multiplier, 1.0),
-                          origin: _scaleOrigin,
-                          child: Transform.translate(
-                            offset: Offset(_positionX, 0.0),
-                            child: PolygonWaveform(
-                              samples: waveform.data.map((e) => e.toDouble()).toList(),
-                              absolute: true,
-                              inactiveColor: Color(0xffcccccc),
-                              height: 100,
-                              width: MediaQuery.of(context).size.width,
-                            ),
+                    Row(
+                      children: [
+                        IconButton(
+                          icon: _isPlaying
+                            ? Icon(
+                                Icons.pause_circle_outline,
+                                size: 40.0,
+                              )
+                            : Icon(Icons.play_circle_outline,
+                                size: 40.0),
+                          onPressed: _onPlayingChanged
+                        ),
+                        Expanded(
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              return Stack(
+                                children: [
+                                  GestureDetector(
+                                  onScaleUpdate: (event) => _onWidthChanged(event),
+                                  onScaleEnd: (event) => _onScaleEnded(),
+                                  child: Container(
+                                    decoration: BoxDecoration(border: Border.all(width: 1.0, color:  Colors.red)),
+                                    clipBehavior: Clip.hardEdge,
+                                    child: Transform.scale(
+                                      scaleX: max(_multiplier, 1.0),
+                                      alignment: Alignment.centerLeft,
+                                      origin: Offset(70.0, 0),
+                                      child: Transform.translate(
+                                        offset: Offset(_positionX + 70.0, 0.0),
+                                        child: PolygonWaveform(
+                                          samples: waveform.data.map((e) => e.toDouble()).toList(),
+                                          inactiveColor: Color(0xffcccccc),
+                                          height: 100,
+                                          width: constraints.maxWidth,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                Positioned(
+                                  left: 70.0,
+                                  child: Container(
+                                    height: 100,
+                                    child: VerticalDivider(
+                                      color: Colors.green,
+                                      width: 3.0,
+                                    ),
+                                  )
+                                ),
+                                ],
+                              );
+                            }
                           ),
                         ),
-                      ),
+                      ],
                     ),
                   ],
                 );
