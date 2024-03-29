@@ -1,5 +1,7 @@
 import 'dart:math';
+import 'dart:async';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_audio_waveforms/flutter_audio_waveforms.dart';
@@ -134,28 +136,56 @@ class PatternViewPage extends StatefulWidget {
 
 class _PatternViewPageState extends State<PatternViewPage> {
 
+  static const _costume = {0: [100, 100], 1: [200, 100]};
+
+  Map<int, String> _ledToSequences = {}; 
+
   List<Color> _colors = List<Color>.filled(_costume.length, Color.fromARGB(255, 245, 153, 153));
 
   int? _selectedId;
+
   double _multiplier = 1.0;
-  double _position = 0.0;
   double _previousMultiplier = 1.0;
-  double _positionX = 0.0;
+  double _elapsedFraction = 0.0;
+
+  Map<String, List<Effect>> _sequences = {"sequence 1": [], "sequence 2" : []};
+  String _selectedSequence = "sequence 1";
+
+  PlayerState? _playerState;
+  Duration? _duration = Duration.zero;
+  Duration? _position = Duration.zero;
   bool _isPlaying = false;
 
-  static AudioPlayer player = new AudioPlayer();
+  late AudioPlayer player = new AudioPlayer();
 
+  StreamSubscription? _durationSubscription;
+  StreamSubscription? _positionSubscription;
+  StreamSubscription? _playerCompleteSubscription;
+  StreamSubscription? _playerStateChangeSubscription;
   
-
   final progressStream = BehaviorSubject<WaveformProgress>();
 
   @override
   void initState() {
     super.initState();
-    _init();
+    _initWaveform();
+    player = AudioPlayer();
+    _playerState = player.state;
+    _initPlayer();
+    player.getDuration().then(
+          (value) => setState(() {
+            _duration = value;
+          }),
+        );
+    player.getCurrentPosition().then(
+          (value) => setState(() {
+            _position = value;
+          }),
+        );
+    _initStreams();
   }
 
-  Future<void> _init() async {
+  Future<void> _initWaveform() async {
 
     final audioFile =
         File(p.join((await getTemporaryDirectory()).path, 'enooo2.mp3'));
@@ -172,36 +202,89 @@ class _PatternViewPageState extends State<PatternViewPage> {
 
   }
 
-  static const _costume = {0: [100, 100], 1: [200, 100]};
+  void _initPlayer() async {
+    await player.setSource(AssetSource("enooo2.mp3"));
+  }
+
+  void _initStreams() {
+    _durationSubscription = player.onDurationChanged.listen((duration) {
+      setState(() => _duration = duration);
+    });
+
+    _positionSubscription = player.onPositionChanged.listen(
+      (p) => _onPositionChanged(p),
+    );
+
+    _playerCompleteSubscription = player.onPlayerComplete.listen((event) {
+      setState(() {
+        _playerState = PlayerState.stopped;
+        _position = Duration.zero;
+      });
+    });
+
+    _playerStateChangeSubscription =
+        player.onPlayerStateChanged.listen((state) {
+      setState(() {
+        _playerState = state;
+      });
+    });
+  }
 
   void _onPlayingChanged() async{
-    _isPlaying? await player.pause() : await player.play(AssetSource("enooo2.mp3"));
+    _isPlaying? await player.pause() : await player.resume();
     setState(() {
       _isPlaying = !_isPlaying;
+    });
+  }
+
+  void _onPositionChanged(Duration p) {
+    print(_ledToSequences[0]);
+    setState(() {
+      _position = p;
+      _elapsedFraction = _position!.inMicroseconds / _duration!.inMicroseconds;
+      for (int i = 0; i < _colors.length; i++) {
+        Effect? effect = _sequences[_selectedSequence]!.firstWhere((effect) => effect.start <= p && effect.end >= p, orElse: () => SolidColorEffect(p, p, Colors.black));
+        _colors[i] = effect.getColor(p);
+      }
     });
   }
 
   void _onLedTapped(int index) {
     setState(() {
       _selectedId = index;
+      if (_ledToSequences[index] == null) {
+        _ledToSequences[index] = _selectedSequence;
+      }
     });
   }
 
-  void _onWidthChanged(ScaleUpdateDetails details) {
+  void _onWidthChanged(ScaleUpdateDetails details, maxWidth) {
     if (details.pointerCount == 2)
     setState(() {
       _multiplier = details.horizontalScale * _previousMultiplier;
     });
     
-    else if (details.pointerCount == 1)
-    setState(() {
-      _positionX = _positionX + details.focalPointDelta.dx / _multiplier;
-    });
+    else if (details.pointerCount == 1){
+    _isPlaying = false;
+    player.pause();
+    player.seek(Duration(microseconds: (_duration!.inMicroseconds * (_elapsedFraction - (details.focalPointDelta.dx/maxWidth/_multiplier) * 2 )).toInt()));
+    }
   }
 
   void _onScaleEnded() {
+    if (_multiplier >= 1.0)
     setState(() {
       _previousMultiplier = _multiplier;
+    });
+
+    else setState(() {
+      _multiplier = 1.0;
+    });
+  }
+
+  void _onEffectAdded(Effect effect) {
+    setState(() {
+      _sequences[_selectedSequence] = [..._sequences[_selectedSequence]!, effect];
     });
   }
 
@@ -220,7 +303,7 @@ class _PatternViewPageState extends State<PatternViewPage> {
       children: [
         InteractiveViewer(
           child: SizedBox(
-            height: 400,
+            height: 450,
             child: Stack(
               children: [
                 for (var id in _costume.keys) 
@@ -271,10 +354,9 @@ class _PatternViewPageState extends State<PatternViewPage> {
                 final waveform = snapshot.data?.waveform;
                 if (waveform == null) {
                   return Center(
-                    child: Text(
-                      '${(100 * progress).toInt()}%',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
+                    child: LinearProgressIndicator(
+                      value: progress,
+                      )
                   );
                 }
 
@@ -282,15 +364,25 @@ class _PatternViewPageState extends State<PatternViewPage> {
                   children: [
                     Row(
                       children: [
-                        IconButton(
-                          icon: _isPlaying
-                            ? Icon(
-                                Icons.pause_circle_outline,
-                                size: 40.0,
-                              )
-                            : Icon(Icons.play_circle_outline,
-                                size: 40.0),
-                          onPressed: _onPlayingChanged
+                        Container(
+                          height: 100,
+                          width: 50,
+                          decoration: BoxDecoration(
+                            border: Border.all(width: 1.0, color:  Colors.grey),
+                            borderRadius: BorderRadius.only(
+                              topLeft: Radius.circular(10),
+                            )
+                          ),
+                          child: IconButton(
+                            icon: _isPlaying
+                              ? Icon(
+                                  Icons.pause_circle_outline,
+                                  size: 40.0,
+                                )
+                              : Icon(Icons.play_circle_outline,
+                                  size: 40.0),
+                            onPressed: _onPlayingChanged
+                          ),
                         ),
                         Expanded(
                           child: LayoutBuilder(
@@ -298,17 +390,17 @@ class _PatternViewPageState extends State<PatternViewPage> {
                               return Stack(
                                 children: [
                                   GestureDetector(
-                                  onScaleUpdate: (event) => _onWidthChanged(event),
+                                  onScaleUpdate: (event) => _onWidthChanged(event, constraints.maxWidth),
                                   onScaleEnd: (event) => _onScaleEnded(),
                                   child: Container(
-                                    decoration: BoxDecoration(border: Border.all(width: 1.0, color:  Colors.red)),
+                                    decoration: BoxDecoration(),
                                     clipBehavior: Clip.hardEdge,
                                     child: Transform.scale(
                                       scaleX: max(_multiplier, 1.0),
                                       alignment: Alignment.centerLeft,
                                       origin: Offset(70.0, 0),
                                       child: Transform.translate(
-                                        offset: Offset(_positionX + 70.0, 0.0),
+                                        offset: Offset(-_elapsedFraction * constraints.maxWidth + 70.0, 0.0),
                                         child: PolygonWaveform(
                                           samples: waveform.data.map((e) => e.toDouble()).toList(),
                                           inactiveColor: Color(0xffcccccc),
@@ -320,7 +412,7 @@ class _PatternViewPageState extends State<PatternViewPage> {
                                   ),
                                 ),
                                 Positioned(
-                                  left: 70.0,
+                                  left: 69.0,
                                   child: Container(
                                     height: 100,
                                     child: VerticalDivider(
@@ -336,6 +428,75 @@ class _PatternViewPageState extends State<PatternViewPage> {
                         ),
                       ],
                     ),
+                    Row(
+                      children: [
+                        Container(
+                          height: 100,
+                          width: 50,
+                          decoration: BoxDecoration(
+                            border: Border.all(width: 1.0, color:  Colors.grey),
+                            borderRadius: BorderRadius.only(
+                              bottomLeft: Radius.circular(10),
+                            )
+                          ),
+                          child: IconButton(
+                            icon: Icon(Icons.add),
+                            onPressed: () => _onEffectAdded(SolidColorEffect(_position!, _position! + _duration! * (1/_multiplier) * 0.05, Colors.yellow))
+                          ),
+                        ),
+                        Expanded(
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              return Stack(
+                                alignment: Alignment.centerLeft,
+                                children: [
+                                  Container(
+                                    height: 100,
+                                    width: constraints.maxWidth,
+                                    decoration: BoxDecoration(),
+                                    clipBehavior: Clip.hardEdge,
+                                    child: Transform.scale(
+                                      scaleX: max(_multiplier, 1.0),
+                                      alignment: Alignment.centerLeft,
+                                      origin: Offset(70.0, 0),
+                                      child: Transform.translate(
+                                        offset: Offset(-_elapsedFraction * constraints.maxWidth + 70.0, 0.0),
+                                        child: Stack(
+                                          alignment: Alignment.centerLeft,
+                                          children: [
+                                            for (Effect effect in _sequences[_selectedSequence]!)
+                                            Positioned(
+                                              left: constraints.maxWidth * (effect.start.inMicroseconds / _duration!.inMicroseconds),
+                                              child: Container(
+                                                width: constraints.maxWidth * (effect.end.inMicroseconds / _duration!.inMicroseconds) - constraints.maxWidth * (effect.start.inMicroseconds / _duration!.inMicroseconds),
+                                                height: 100,
+                                                decoration: BoxDecoration(
+                                                  color: effect.getColor(effect.start)
+                                                ),
+                                              )
+                                            )
+                                          ],
+                                        )
+                                      ),
+                                    ),
+                                  ),
+                                Positioned(
+                                  left: 69.0,
+                                  child: Container(
+                                        height: 100,
+                                        child: VerticalDivider(
+                                          color: Colors.green,
+                                          width: 3.0,
+                                        ),
+                                      )),
+
+                                ],
+                              );
+                            }
+                          ),
+                        ),
+                      ]
+                    )
                   ],
                 );
               },
@@ -351,7 +512,15 @@ class _PatternViewPageState extends State<PatternViewPage> {
                       },
                   ),
           )
-          )
+        ),
+        DropdownMenu(
+          expandedInsets: EdgeInsets.all(8.0),
+          dropdownMenuEntries: 
+          [
+            for (var sequence in _sequences.keys)
+            DropdownMenuEntry(value: sequence, label: sequence)
+          ]
+        )
       ],
     );
   }
@@ -365,3 +534,30 @@ void sendPackage(data) async {
   udp.send(utf8.encode(data), InternetAddress('192.168.43.11'), 4210);
   print("$data sent.");
   }
+
+class Effect {
+
+  late Duration start;
+  late Duration end;
+
+  Effect(this.start, this.end);
+
+  Color getColor(Duration p) {
+    return Colors.black;
+  }
+  
+  
+}
+
+class SolidColorEffect extends Effect {
+
+  Color color = Colors.black;
+
+  SolidColorEffect(Duration start, Duration end, this.color) : super(start, end);
+
+  @override
+  Color getColor(Duration p) {
+    return color;
+  }
+
+}
