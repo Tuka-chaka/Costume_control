@@ -143,6 +143,7 @@ class _PatternViewPageState extends State<PatternViewPage> {
   List<Color> _colors = List<Color>.filled(_costume.length, Color.fromARGB(255, 245, 153, 153));
 
   int? _selectedId;
+  Effect? _selectedEffect;
 
   double _multiplier = 1.0;
   double _previousMultiplier = 1.0;
@@ -238,12 +239,11 @@ class _PatternViewPageState extends State<PatternViewPage> {
   }
 
   void _onPositionChanged(Duration p) {
-    print(_ledToSequences[0]);
     setState(() {
       _position = p;
       _elapsedFraction = _position!.inMicroseconds / _duration!.inMicroseconds;
       for (int i = 0; i < _colors.length; i++) {
-        Effect? effect = _sequences[_selectedSequence]!.firstWhere((effect) => effect.start <= p && effect.end >= p, orElse: () => SolidColorEffect(p, p, Colors.black));
+        Effect? effect = _sequences[_ledToSequences[i]]!.firstWhere((effect) => effect.start <= p && effect.end >= p, orElse: () => SolidColorEffect(p, p, Colors.black));
         _colors[i] = effect.getColor(p);
       }
     });
@@ -251,6 +251,8 @@ class _PatternViewPageState extends State<PatternViewPage> {
 
   void _onLedTapped(int index) {
     setState(() {
+      _ledToSequences[index] ??= _selectedSequence;
+      _selectedSequence = _ledToSequences[index]!;
       _selectedId = index;
       if (_ledToSequences[index] == null) {
         _ledToSequences[index] = _selectedSequence;
@@ -338,7 +340,7 @@ class _PatternViewPageState extends State<PatternViewPage> {
         ),
         Expanded(
           child: Center(
-            child: _selectedId == null ? StreamBuilder<WaveformProgress>(
+            child: _selectedEffect == null ? StreamBuilder<WaveformProgress>(
               stream: progressStream,
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
@@ -515,6 +517,10 @@ class _PatternViewPageState extends State<PatternViewPage> {
         ),
         DropdownMenu(
           expandedInsets: EdgeInsets.all(8.0),
+          onSelected: (value) => setState((){
+            _selectedSequence = value!;
+            _ledToSequences[_selectedId!] = _selectedSequence;
+            }),
           dropdownMenuEntries: 
           [
             for (var sequence in _sequences.keys)
