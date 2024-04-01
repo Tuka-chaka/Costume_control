@@ -72,7 +72,7 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.title)),
+      appBar: AppBar(title: Text(widget.title), surfaceTintColor: Colors.transparent),
       body: Center(
         child: _widgetOptions[_selectedIndex],
       ),
@@ -151,6 +151,7 @@ class _PatternViewPageState extends State<PatternViewPage> {
   double _elapsedFraction = 0.0;
 
   late double _dragOfset;
+  late double _draggedEffectWidth;
 
   Map<String, List<Effect>> _sequences = {"sequence 1": [], "sequence 2" : []};
   late String _selectedSequence;
@@ -257,6 +258,7 @@ class _PatternViewPageState extends State<PatternViewPage> {
 
   void _onLedTapped(int index) {
     setState(() {
+      _selectedEffect = null;
       _ledToSequences[index] ??= _selectedSequence;
       _selectedSequence = _ledToSequences[index] ?? _selectedSequence;
       _selectedId = index;
@@ -297,12 +299,11 @@ class _PatternViewPageState extends State<PatternViewPage> {
   }
 
     void _onEffectDragged(Effect effect, DragUpdateDetails details, double maxWidth) {
-    print(details.localPosition.dx);
-    if (effect == _selectedEffect && _dragOfset <= (maxWidth * (effect.end.inMicroseconds / _duration!.inMicroseconds) - maxWidth * (effect.start.inMicroseconds / _duration!.inMicroseconds)) * 0.5)
+    if (effect == _selectedEffect && _dragOfset <= _draggedEffectWidth * 0.4)
       setState(() {
       effect.start = Duration(microseconds: (_duration!.inMicroseconds * ((effect.start.inMicroseconds / _duration!.inMicroseconds) + (details.delta.dx/maxWidth))).toInt());
     });
-    else if (effect == _selectedEffect && _dragOfset >= (maxWidth * (effect.end.inMicroseconds / _duration!.inMicroseconds) - maxWidth * (effect.start.inMicroseconds / _duration!.inMicroseconds)) * 0.5)
+    else if (effect == _selectedEffect && _dragOfset >= _draggedEffectWidth * 0.6)
       setState(() {
       effect.end = Duration(microseconds: (_duration!.inMicroseconds * ((effect.end.inMicroseconds / _duration!.inMicroseconds) + (details.delta.dx/maxWidth))).toInt());
     });
@@ -329,7 +330,7 @@ class _PatternViewPageState extends State<PatternViewPage> {
       children: [
         InteractiveViewer(
           child: SizedBox(
-            height: 450,
+            height: MediaQuery.of(context).size.height - 400,
             child: Stack(
               children: [
                 for (var id in _costume.keys) 
@@ -342,6 +343,11 @@ class _PatternViewPageState extends State<PatternViewPage> {
                         width: 20,
                         height: 20,
                         decoration: BoxDecoration(
+                          boxShadow: id == _selectedId ? [BoxShadow(
+                            blurRadius: 5.0,
+                            blurStyle: BlurStyle.outer,
+                            color: Colors.grey
+                          )] : [],
                           color: _colors[id],
                           border: Border.all(width: 1.0, color:  Colors.grey),
                           shape: BoxShape.circle,
@@ -388,6 +394,31 @@ class _PatternViewPageState extends State<PatternViewPage> {
 
                 return  Column(
                   children: [
+                    Container(
+                      height: 50.0,
+                      child: Row(
+                        children: _selectedEffect == null ? [
+                          Expanded(child: Center(child: Text("No effect selected")))
+                        ]
+                        : [
+                          IconButton(
+                            icon: Icon(Icons.check),
+                            onPressed: () => setState(() {
+                              _selectedEffect = null;
+                            }),
+                          ),
+                          Spacer(),
+                          Text(_selectedEffect.toString()),
+                          Spacer(),
+                          IconButton(
+                            icon: Icon(Icons.palette),
+                            onPressed: () => setState(() {
+                              _inEffectSettings = true;
+                            }),
+                          )
+                        ],
+                      ),
+                    ),
                     Row(
                       children: [
                         Container(
@@ -401,12 +432,8 @@ class _PatternViewPageState extends State<PatternViewPage> {
                           ),
                           child: IconButton(
                             icon: _isPlaying
-                              ? Icon(
-                                  Icons.pause_circle_outline,
-                                  size: 40.0,
-                                )
-                              : Icon(Icons.play_circle_outline,
-                                  size: 40.0),
+                              ? Icon(Icons.pause)
+                              : Icon(Icons.play_arrow),
                             onPressed: _onPlayingChanged
                           ),
                         ),
@@ -499,11 +526,15 @@ class _PatternViewPageState extends State<PatternViewPage> {
                                                   setState(() {_selectedEffect = effect;})
                                                 },
                                                 onHorizontalDragUpdate: (details) => _onEffectDragged(effect, details, constraints.maxWidth),
-                                                onHorizontalDragStart: (details) => setState(() {_dragOfset = details.localPosition.dx;}),
+                                                onHorizontalDragStart: (details) => setState(() {
+                                                  _dragOfset = details.localPosition.dx;
+                                                  _draggedEffectWidth = constraints.maxWidth * (effect.end.inMicroseconds / _duration!.inMicroseconds) - constraints.maxWidth * (effect.start.inMicroseconds / _duration!.inMicroseconds);
+                                                }),
                                                 child: Container(
                                                   width: constraints.maxWidth * (effect.end.inMicroseconds / _duration!.inMicroseconds) - constraints.maxWidth * (effect.start.inMicroseconds / _duration!.inMicroseconds),
                                                   height: 100,
                                                   decoration: BoxDecoration(
+                                                    borderRadius: BorderRadius.only(topLeft: Radius.elliptical(10 / _multiplier, 10), topRight: Radius.elliptical(10 / _multiplier, 10)),
                                                     border: effect == _selectedEffect ? Border(
                                                       left: BorderSide(width: 1, color: Colors.grey),
                                                       right: BorderSide(width: 1, color: Colors.grey)
@@ -540,29 +571,62 @@ class _PatternViewPageState extends State<PatternViewPage> {
                 );
               },
             )
-                : ColorPicker(
-                    enableShadesSelection: false,
-                    onColorChanged: onColorChanged,
-                    color: _colors[_selectedId!],
-                    pickersEnabled: const {
-                      ColorPickerType.primary: false,
-                      ColorPickerType.accent: false,
-                      ColorPickerType.wheel: true
-                      },
-                  ),
+                : Column(
+                  children: [
+                    IconButton(
+                      onPressed: () => setState(() {_inEffectSettings = false;}),
+                      icon: Icon(Icons.check)
+                    ),
+                    ColorPicker(
+                        enableShadesSelection: false,
+                        onColorChanged: onColorChanged,
+                        color: _colors[_selectedId!],
+                        pickersEnabled: const {
+                          ColorPickerType.primary: false,
+                          ColorPickerType.accent: false,
+                          ColorPickerType.wheel: true
+                          },
+                      ),
+                  ],
+                ),
           )
         ),
         DropdownMenu(
+          menuHeight: 200.0,
           expandedInsets: EdgeInsets.all(8.0),
           initialSelection: _selectedSequence,
           onSelected: (value) => setState((){
+            _selectedEffect = null;
             _selectedSequence = value!;
             _ledToSequences[_selectedId!] = _selectedSequence;
             }),
           dropdownMenuEntries: 
           [
             for (var sequence in _sequences.keys)
-            DropdownMenuEntry(value: sequence, label: sequence)
+            DropdownMenuEntry(
+              value: sequence, 
+              label: sequence,
+              labelWidget: Container(
+                width: MediaQuery.of(context).size.width - 40.0,
+                child: Row(
+                  children: [
+                  Text(sequence),
+                  IconButton(
+                    onPressed: () => {},
+                    icon: Icon(Icons.edit)
+                  ),
+                  Spacer(),
+                  IconButton(
+                    onPressed: () => setState(() {
+                      _sequences["$sequence copy"] = _sequences[sequence]!;
+                      _selectedSequence = "$sequence copy";
+                    }),
+                    icon: Icon(Icons.copy)
+                  ),
+                ],
+                ),
+              )
+            )
           ]
         )
       ],
