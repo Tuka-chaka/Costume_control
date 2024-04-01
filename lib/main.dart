@@ -140,17 +140,20 @@ class _PatternViewPageState extends State<PatternViewPage> {
 
   Map<int, String> _ledToSequences = {}; 
 
-  List<Color> _colors = List<Color>.filled(_costume.length, Color.fromARGB(255, 245, 153, 153));
+  List<Color> _colors = List<Color>.filled(_costume.length, Colors.black);
 
   int? _selectedId;
   Effect? _selectedEffect;
+  bool _inEffectSettings = false;
 
   double _multiplier = 1.0;
   double _previousMultiplier = 1.0;
   double _elapsedFraction = 0.0;
 
+  late double _dragOfset;
+
   Map<String, List<Effect>> _sequences = {"sequence 1": [], "sequence 2" : []};
-  String _selectedSequence = "sequence 1";
+  late String _selectedSequence;
 
   PlayerState? _playerState;
   Duration? _duration = Duration.zero;
@@ -172,6 +175,7 @@ class _PatternViewPageState extends State<PatternViewPage> {
     _initWaveform();
     player = AudioPlayer();
     _playerState = player.state;
+    _selectedSequence = _sequences.keys.last;
     _initPlayer();
     player.getDuration().then(
           (value) => setState(() {
@@ -243,8 +247,10 @@ class _PatternViewPageState extends State<PatternViewPage> {
       _position = p;
       _elapsedFraction = _position!.inMicroseconds / _duration!.inMicroseconds;
       for (int i = 0; i < _colors.length; i++) {
-        Effect? effect = _sequences[_ledToSequences[i]]!.firstWhere((effect) => effect.start <= p && effect.end >= p, orElse: () => SolidColorEffect(p, p, Colors.black));
-        _colors[i] = effect.getColor(p);
+        if (_sequences[_ledToSequences[i]] != null){
+          Effect? effect = _sequences[_ledToSequences[i]]!.firstWhere((effect) => effect.start <= p && effect.end >= p, orElse: () => SolidColorEffect(p, p, Colors.black));
+          _colors[i] = effect.getColor(p);
+        }
       }
     });
   }
@@ -252,7 +258,7 @@ class _PatternViewPageState extends State<PatternViewPage> {
   void _onLedTapped(int index) {
     setState(() {
       _ledToSequences[index] ??= _selectedSequence;
-      _selectedSequence = _ledToSequences[index]!;
+      _selectedSequence = _ledToSequences[index] ?? _selectedSequence;
       _selectedId = index;
       if (_ledToSequences[index] == null) {
         _ledToSequences[index] = _selectedSequence;
@@ -260,7 +266,7 @@ class _PatternViewPageState extends State<PatternViewPage> {
     });
   }
 
-  void _onWidthChanged(ScaleUpdateDetails details, maxWidth) {
+  void _onWidthChanged(ScaleUpdateDetails details, double maxWidth) {
     if (details.pointerCount == 2)
     setState(() {
       _multiplier = details.horizontalScale * _previousMultiplier;
@@ -288,6 +294,24 @@ class _PatternViewPageState extends State<PatternViewPage> {
     setState(() {
       _sequences[_selectedSequence] = [..._sequences[_selectedSequence]!, effect];
     });
+  }
+
+    void _onEffectDragged(Effect effect, DragUpdateDetails details, double maxWidth) {
+    print(details.localPosition.dx);
+    if (effect == _selectedEffect && _dragOfset <= (maxWidth * (effect.end.inMicroseconds / _duration!.inMicroseconds) - maxWidth * (effect.start.inMicroseconds / _duration!.inMicroseconds)) * 0.5)
+      setState(() {
+      effect.start = Duration(microseconds: (_duration!.inMicroseconds * ((effect.start.inMicroseconds / _duration!.inMicroseconds) + (details.delta.dx/maxWidth))).toInt());
+    });
+    else if (effect == _selectedEffect && _dragOfset >= (maxWidth * (effect.end.inMicroseconds / _duration!.inMicroseconds) - maxWidth * (effect.start.inMicroseconds / _duration!.inMicroseconds)) * 0.5)
+      setState(() {
+      effect.end = Duration(microseconds: (_duration!.inMicroseconds * ((effect.end.inMicroseconds / _duration!.inMicroseconds) + (details.delta.dx/maxWidth))).toInt());
+    });
+    else if (effect != _selectedEffect)
+    setState(() {
+      effect.start = Duration(microseconds: (_duration!.inMicroseconds * ((effect.start.inMicroseconds / _duration!.inMicroseconds) + (details.delta.dx/maxWidth))).toInt());
+      effect.end = Duration(microseconds: (_duration!.inMicroseconds * ((effect.end.inMicroseconds / _duration!.inMicroseconds) + (details.delta.dx/maxWidth))).toInt());
+    });
+    _onPositionChanged(_position!);
   }
 
   void onColorChanged(Color color) {
@@ -340,7 +364,7 @@ class _PatternViewPageState extends State<PatternViewPage> {
         ),
         Expanded(
           child: Center(
-            child: _selectedEffect == null ? StreamBuilder<WaveformProgress>(
+            child: !_inEffectSettings ? StreamBuilder<WaveformProgress>(
               stream: progressStream,
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
@@ -469,11 +493,24 @@ class _PatternViewPageState extends State<PatternViewPage> {
                                             for (Effect effect in _sequences[_selectedSequence]!)
                                             Positioned(
                                               left: constraints.maxWidth * (effect.start.inMicroseconds / _duration!.inMicroseconds),
-                                              child: Container(
-                                                width: constraints.maxWidth * (effect.end.inMicroseconds / _duration!.inMicroseconds) - constraints.maxWidth * (effect.start.inMicroseconds / _duration!.inMicroseconds),
-                                                height: 100,
-                                                decoration: BoxDecoration(
-                                                  color: effect.getColor(effect.start)
+                                              child: GestureDetector(
+                                                onLongPress: () => {
+
+                                                  setState(() {_selectedEffect = effect;})
+                                                },
+                                                onHorizontalDragUpdate: (details) => _onEffectDragged(effect, details, constraints.maxWidth),
+                                                onHorizontalDragStart: (details) => setState(() {_dragOfset = details.localPosition.dx;}),
+                                                child: Container(
+                                                  width: constraints.maxWidth * (effect.end.inMicroseconds / _duration!.inMicroseconds) - constraints.maxWidth * (effect.start.inMicroseconds / _duration!.inMicroseconds),
+                                                  height: 100,
+                                                  decoration: BoxDecoration(
+                                                    border: effect == _selectedEffect ? Border(
+                                                      left: BorderSide(width: 1, color: Colors.grey),
+                                                      right: BorderSide(width: 1, color: Colors.grey)
+                                                    ) 
+                                                    : Border.all(style: BorderStyle.none),
+                                                    color: effect.getColor(effect.start)
+                                                  ),
                                                 ),
                                               )
                                             )
@@ -517,6 +554,7 @@ class _PatternViewPageState extends State<PatternViewPage> {
         ),
         DropdownMenu(
           expandedInsets: EdgeInsets.all(8.0),
+          initialSelection: _selectedSequence,
           onSelected: (value) => setState((){
             _selectedSequence = value!;
             _ledToSequences[_selectedId!] = _selectedSequence;
@@ -551,7 +589,6 @@ class Effect {
   Color getColor(Duration p) {
     return Colors.black;
   }
-  
   
 }
 
