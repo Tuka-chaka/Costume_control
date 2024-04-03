@@ -1,3 +1,4 @@
+import 'dart:ffi';
 import 'dart:math';
 import 'dart:async';
 
@@ -11,6 +12,7 @@ import 'package:path/path.dart' as p;
 import 'package:rxdart/rxdart.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:collection/collection.dart';
 
 import 'package:flex_color_picker/flex_color_picker.dart';
 import 'dart:io';
@@ -136,11 +138,34 @@ class PatternViewPage extends StatefulWidget {
 
 class _PatternViewPageState extends State<PatternViewPage> {
 
-  static const _costume = {0: [100, 100], 1: [200, 100]};
+  Map<String, Costume> _costumes = {
+    "Costume 1": Costume({
+      0: [
+        Led(0, 100, 100),
+        Led(1, 200, 100)
+      ],
+      1: [
+        Led(2, 100, 200),
+        Led(3, 200, 200)
+      ]
+    }),
+    "Costume 2": Costume({
+      0: [
+        Led(4, 100, 150),
+        Led(5, 200, 150)
+      ],
+      1: [
+        Led(6, 100, 250),
+        Led(7, 200, 250)
+      ]
+    }),
+  };
+
+  late Costume _costume;
 
   Map<int, String> _ledToSequences = {}; 
 
-  List<Color> _colors = List<Color>.filled(_costume.length, Colors.black);
+  List<Color> _colors = List<Color>.filled(8, Colors.black);
 
   int? _selectedId;
   Effect? _selectedEffect;
@@ -172,6 +197,8 @@ class _PatternViewPageState extends State<PatternViewPage> {
 
   @override
   void initState() {
+    print(_costumes["Costume 1"]!);
+    _costume = _costumes["Costume 1"]!;
     super.initState();
     _initWaveform();
     player = AudioPlayer();
@@ -293,84 +320,141 @@ class _PatternViewPageState extends State<PatternViewPage> {
   }
 
   void _onEffectAdded(Effect effect) {
+    Effect? previousEffect = _sequences[_selectedSequence]!.lastWhereOrNull((previousEffect) => previousEffect.start <= effect.start);
+    Effect? nextEffect = _sequences[_selectedSequence]!.firstWhereOrNull((nextEffect) => nextEffect.start >= effect.start);
+
+    if (previousEffect != null) {
+      effect.previousEffect = previousEffect;
+      previousEffect.nextEffect = effect;
+      if (previousEffect.end >= effect.start) {
+        setState(() {previousEffect.end = effect.start;});
+      }
+    }
+
+    if (nextEffect != null) {
+      effect.nextEffect = nextEffect;
+      nextEffect.previousEffect = effect;
+      if (nextEffect.start <= effect.end) {
+        effect.end = nextEffect.start;
+      }
+    }
+
     setState(() {
-      _sequences[_selectedSequence] = [..._sequences[_selectedSequence]!, effect];
+      _sequences[_selectedSequence]!.insert(_sequences[_selectedSequence]!.lastIndexWhere((previousEffect) => previousEffect.end <= effect.start) + 1, effect);
     });
   }
 
-    void _onEffectDragged(Effect effect, DragUpdateDetails details, double maxWidth) {
-    if (effect == _selectedEffect && _dragOfset <= _draggedEffectWidth * 0.4)
-      setState(() {
-      effect.start = Duration(microseconds: (_duration!.inMicroseconds * ((effect.start.inMicroseconds / _duration!.inMicroseconds) + (details.delta.dx/maxWidth))).toInt());
-    });
-    else if (effect == _selectedEffect && _dragOfset >= _draggedEffectWidth * 0.6)
-      setState(() {
-      effect.end = Duration(microseconds: (_duration!.inMicroseconds * ((effect.end.inMicroseconds / _duration!.inMicroseconds) + (details.delta.dx/maxWidth))).toInt());
-    });
-    else if (effect != _selectedEffect)
-    setState(() {
-      effect.start = Duration(microseconds: (_duration!.inMicroseconds * ((effect.start.inMicroseconds / _duration!.inMicroseconds) + (details.delta.dx/maxWidth))).toInt());
-      effect.end = Duration(microseconds: (_duration!.inMicroseconds * ((effect.end.inMicroseconds / _duration!.inMicroseconds) + (details.delta.dx/maxWidth))).toInt());
-    });
+  void _onEffectDragged(Effect effect, DragUpdateDetails details, double maxWidth) {
+    Duration startDelta = Duration(microseconds: (_duration!.inMicroseconds * ((effect.start.inMicroseconds / _duration!.inMicroseconds) + (details.delta.dx/maxWidth))).toInt());
+    Duration endDelta = Duration(microseconds: (_duration!.inMicroseconds * ((effect.end.inMicroseconds / _duration!.inMicroseconds) + (details.delta.dx/maxWidth))).toInt());
+    if (effect == _selectedEffect && _dragOfset <= _draggedEffectWidth * 0.4){
+      if (effect.previousEffect == null || effect.previousEffect!.end < startDelta) {
+        setState(() {
+        effect.start = startDelta;
+        });
+      }
+    }
+    else if (effect == _selectedEffect && _dragOfset >= _draggedEffectWidth * 0.6) {
+      if (effect.nextEffect == null || effect.nextEffect!.start > endDelta) {
+        setState(() {
+        effect.end = endDelta;
+        });
+      }
+    }
+
+    else if (effect != _selectedEffect){
+      if ((effect.nextEffect == null || effect.nextEffect!.start > endDelta) && (effect.previousEffect == null || effect.previousEffect!.end < startDelta)) {
+        setState(() {
+          effect.start = startDelta;
+          effect.end = endDelta;
+        });
+      }
+    }
     _onPositionChanged(_position!);
   }
 
-  void onColorChanged(Color color) {
+  void _onColorChanged(Color color) {
     setState(() {
-      _colors[_selectedId!] = color;
+      for (int i = 0; i < _colors.length; i++) {
+        if (_ledToSequences[i] == _selectedSequence){
+          _colors[i] = color;
+        }
+      }
     });
-
-    sendPackage("$_selectedId,${color.red},${color.green},${color.blue}");
-    
+    // sendPackage("$_selectedId,${color.red},${color.green},${color.blue}");
   }
   
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
-        InteractiveViewer(
-          child: SizedBox(
-            height: MediaQuery.of(context).size.height - 400,
-            child: Stack(
-              children: [
-                for (var id in _costume.keys) 
-                  Positioned(
-                    left: _costume[id]![0].toDouble(),
-                    top: _costume[id]![1].toDouble(),
-                    child: GestureDetector(
-                      onTap: () => _onLedTapped(id),
-                      child: Container(
-                        width: 20,
-                        height: 20,
-                        decoration: BoxDecoration(
-                          boxShadow: id == _selectedId ? [BoxShadow(
-                            blurRadius: 5.0,
-                            blurStyle: BlurStyle.outer,
-                            color: Colors.grey
-                          )] : [],
-                          color: _colors[id],
-                          border: Border.all(width: 1.0, color:  Colors.grey),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Center(
-                                child: Text(
-                                id.toString(),
-                                style: TextStyle(
-                                  color: Colors.grey,
-                                  fontSize: 10
-                                ),
-                                )
-                                )
-                      ),
-                    )
-                  )
-              ] 
-            ) 
-          ),
+        Stack(
+          children: [
+            InteractiveViewer(
+              child: SizedBox(
+                height: MediaQuery.of(context).size.height - 400,
+                child: Stack(
+                  children: [
+                    for (var strip in _costume.strips.values)
+                      for (var i = 0; i < strip.length; i++)
+                      Positioned(
+                        left: strip[i].x,
+                        top: strip[i].y,
+                        child: GestureDetector(
+                          onTap: () => _onLedTapped(strip[i].id),
+                          child: Container(
+                            width: 20,
+                            height: 20,
+                            decoration: BoxDecoration(
+                              boxShadow: strip[i].id == _selectedId ? [BoxShadow(
+                                blurRadius: 5.0,
+                                blurStyle: BlurStyle.outer,
+                                color: Colors.grey
+                              )] : [],
+                              color: _colors[strip[i].id],
+                              border: Border.all(width: 1.0, color:  Colors.grey),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Center(
+                                    child: Text(
+                                    i.toString(),
+                                    style: TextStyle(
+                                      color: Colors.grey,
+                                      fontSize: 10
+                                    ),
+                                    )
+                                    )
+                          ),
+                        )
+                      )
+                  ] 
+                ) 
+              ),
+            ),
+            Positioned(
+              top: 50,
+              right: 10,
+              child: Container(
+                height: 300,
+                width: 50,
+                child: ListView(
+                  children: [
+                    for (var costume in _costumes.keys)
+                      IconButton(
+                        onPressed: () => setState(() {
+                          _costume = _costumes[costume]!;
+                        }),
+                        icon: Icon(Icons.numbers)
+                      )
+                  ]
+                ),
+              ),
+            )
+          ],
         ),
         Expanded(
           child: Center(
-            child: !_inEffectSettings ? StreamBuilder<WaveformProgress>(
+            child: StreamBuilder<WaveformProgress>(
               stream: progressStream,
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
@@ -392,7 +476,7 @@ class _PatternViewPageState extends State<PatternViewPage> {
                   );
                 }
 
-                return  Column(
+                return !_inEffectSettings ? Column(
                   children: [
                     Container(
                       height: 50.0,
@@ -412,9 +496,10 @@ class _PatternViewPageState extends State<PatternViewPage> {
                           Spacer(),
                           IconButton(
                             icon: Icon(Icons.palette),
-                            onPressed: () => setState(() {
-                              _inEffectSettings = true;
-                            }),
+                            onPressed: () => {
+                              setState(() {_inEffectSettings = true;}),
+                              _onColorChanged(_selectedEffect!.getColor(_selectedEffect!.start))
+                              },
                           )
                         ],
                       ),
@@ -566,75 +651,71 @@ class _PatternViewPageState extends State<PatternViewPage> {
                           ),
                         ),
                       ]
-                    )
+                    ),
+                    DropdownMenu(
+                          menuHeight: 200.0,
+                          expandedInsets: EdgeInsets.all(8.0),
+                          initialSelection: _selectedSequence,
+                          onSelected: (value) => setState(() {
+                                _selectedEffect = null;
+                                _selectedSequence = value!;
+                                _ledToSequences[_selectedId!] =
+                                    _selectedSequence;
+                              }),
+                          dropdownMenuEntries: [
+                            for (var sequence in _sequences.keys)
+                              DropdownMenuEntry(
+                                  value: sequence,
+                                  label: sequence,
+                                  labelWidget: Container(
+                                    width: MediaQuery.of(context).size.width -
+                                        40.0,
+                                    child: Row(
+                                      children: [
+                                        Text(sequence),
+                                        IconButton(
+                                            onPressed: () => {},
+                                            icon: Icon(Icons.edit)),
+                                        Spacer(),
+                                        IconButton(
+                                            onPressed: () => setState(() {
+                                                _sequences["$sequence copy"] = _sequences[sequence]!.map((effect) => effect.clone()).toList();
+                                                _selectedSequence = "$sequence copy";
+                                              }),
+                                            icon: Icon(Icons.copy)),
+                                        IconButton(
+                                            onPressed: () => setState(() {
+                                              if (_selectedSequence == sequence)
+                                                _selectedSequence = _sequences.keys.lastWhere((name) => name != sequence);
+                                              _sequences.remove(sequence);
+                                            }),
+                                            icon: Icon(Icons.delete_forever)),
+                                      ],
+                                    ),
+                                  )),
+                          ])
+                  ],
+                ): Column(
+                  children: [
+                    IconButton(
+                      onPressed: () => {
+                        setState(() {_inEffectSettings = false;}),
+                        _onPositionChanged(_position!)
+                      },
+                      icon: Icon(Icons.check)
+                    ),
+                    _selectedEffect!.settings(_onColorChanged),
                   ],
                 );
               },
             )
-                : Column(
-                  children: [
-                    IconButton(
-                      onPressed: () => setState(() {_inEffectSettings = false;}),
-                      icon: Icon(Icons.check)
-                    ),
-                    ColorPicker(
-                        enableShadesSelection: false,
-                        onColorChanged: onColorChanged,
-                        color: _colors[_selectedId!],
-                        pickersEnabled: const {
-                          ColorPickerType.primary: false,
-                          ColorPickerType.accent: false,
-                          ColorPickerType.wheel: true
-                          },
-                      ),
-                  ],
-                ),
           )
         ),
-        DropdownMenu(
-          menuHeight: 200.0,
-          expandedInsets: EdgeInsets.all(8.0),
-          initialSelection: _selectedSequence,
-          onSelected: (value) => setState((){
-            _selectedEffect = null;
-            _selectedSequence = value!;
-            _ledToSequences[_selectedId!] = _selectedSequence;
-            }),
-          dropdownMenuEntries: 
-          [
-            for (var sequence in _sequences.keys)
-            DropdownMenuEntry(
-              value: sequence, 
-              label: sequence,
-              labelWidget: Container(
-                width: MediaQuery.of(context).size.width - 40.0,
-                child: Row(
-                  children: [
-                  Text(sequence),
-                  IconButton(
-                    onPressed: () => {},
-                    icon: Icon(Icons.edit)
-                  ),
-                  Spacer(),
-                  IconButton(
-                    onPressed: () => setState(() {
-                      _sequences["$sequence copy"] = _sequences[sequence]!;
-                      _selectedSequence = "$sequence copy";
-                    }),
-                    icon: Icon(Icons.copy)
-                  ),
-                ],
-                ),
-              )
-            )
-          ]
-        )
+        
       ],
     );
   }
 }
-
-
 
 void sendPackage(data) async {
 
@@ -648,10 +729,45 @@ class Effect {
   late Duration start;
   late Duration end;
 
+  // set end (Duration p) {
+  //   if (nextEffect != null){
+  //     _end =  p.compareTo(nextEffect!.start) <= 0 ? p : nextEffect!.start;
+  //   }
+  //   else
+  //     _end = p;
+  // }
+
+  // Duration get end {
+  //   return _end;
+  // }
+
+  // set start (Duration p) {
+  //   if (nextEffect != null){
+  //     _start = p.compareTo(_end) <= 0 ? p : _end;
+  //   }
+  //   else
+  //     _start = p;
+  // }
+
+  // Duration get start {
+  //   return _start;
+  // }
+
+  Effect? previousEffect;
+  Effect? nextEffect;
+
   Effect(this.start, this.end);
 
   Color getColor(Duration p) {
     return Colors.black;
+  }
+
+  Widget settings(onColorChanged) {
+    return Text("No settings defined");
+  }
+
+  Effect clone() {
+      return Effect(start, end);
   }
   
 }
@@ -667,4 +783,39 @@ class SolidColorEffect extends Effect {
     return color;
   }
 
+  @override
+  Widget settings(onColorChanged) {
+    return ColorPicker(
+      enableShadesSelection: false,
+      onColorChanged: (color) => {
+        this.color = color,
+        onColorChanged(color),
+        },
+      color: this.color,
+      pickersEnabled: const {
+        ColorPickerType.primary: false,
+        ColorPickerType.accent: false,
+        ColorPickerType.wheel: true
+      },
+    );
+  }
+
+  @override
+  Effect clone() {
+    return SolidColorEffect(start, end, color);
+  }
+}
+
+
+class Costume {
+  Map<int, List<Led>> strips = {};
+  Costume(this.strips);
+}
+
+class Led {
+  late int id;
+  late double x;
+  late double y;
+  late Color color;
+  Led(this.id, this.x, this.y);
 }
