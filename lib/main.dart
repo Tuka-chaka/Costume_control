@@ -162,6 +162,7 @@ class _PatternViewPageState extends State<PatternViewPage> {
   };
 
   late Costume _costume;
+  late List<Led> _leds = [];
 
   Map<int, String> _ledToSequences = {}; 
 
@@ -197,11 +198,21 @@ class _PatternViewPageState extends State<PatternViewPage> {
 
   @override
   void initState() {
-    print(_costumes["Costume 1"]!);
     _costume = _costumes["Costume 1"]!;
+    for (var costume in _costumes.keys){
+      for (var strip in _costumes[costume]!.strips.keys){
+        for(var led in _costumes[costume]!.strips[strip]!){
+          _leds.add(led);
+        }
+      }
+    }
     super.initState();
     _initWaveform();
     player = AudioPlayer();
+    player.positionUpdater = TimerPositionUpdater(
+      interval: const Duration(milliseconds: 33),
+      getPosition: player.getCurrentPosition,
+    );
     _playerState = player.state;
     _selectedSequence = _sequences.keys.last;
     _initPlayer();
@@ -271,6 +282,7 @@ class _PatternViewPageState extends State<PatternViewPage> {
   }
 
   void _onPositionChanged(Duration p) {
+    Map<String, Map<String, List<String>>> payload = _costumes.map((name, costume) => MapEntry(name, costume.strips.map((key, value) => MapEntry(key.toString(), []))));
     setState(() {
       _position = p;
       _elapsedFraction = _position!.inMicroseconds / _duration!.inMicroseconds;
@@ -281,6 +293,16 @@ class _PatternViewPageState extends State<PatternViewPage> {
         }
       }
     });
+
+    for (var costume in _costumes.keys){
+      for (var strip in _costumes[costume]!.strips.keys){
+        for(var led in _costumes[costume]!.strips[strip]!){
+          Color color = _colors[led.id];
+          payload[costume]![strip.toString()]!.add("${createPackedColor(color.red, color.green, color.blue)}");
+        }
+      }
+    }
+    sendPackage(jsonEncode(payload));
   }
 
   void _onLedTapped(int index) {
@@ -293,6 +315,7 @@ class _PatternViewPageState extends State<PatternViewPage> {
         _ledToSequences[index] = _selectedSequence;
       }
     });
+    _onPositionChanged(_position!);
   }
 
   void _onWidthChanged(ScaleUpdateDetails details, double maxWidth) {
@@ -722,36 +745,16 @@ void sendPackage(data) async {
   RawDatagramSocket udp = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 4209);
   udp.send(utf8.encode(data), InternetAddress('192.168.43.11'), 4210);
   print("$data sent.");
-  }
+}
+
+int createPackedColor(int red, int green, int blue) {
+  return (65536 * red) + (256 * green) + blue;
+}
 
 class Effect {
 
   late Duration start;
   late Duration end;
-
-  // set end (Duration p) {
-  //   if (nextEffect != null){
-  //     _end =  p.compareTo(nextEffect!.start) <= 0 ? p : nextEffect!.start;
-  //   }
-  //   else
-  //     _end = p;
-  // }
-
-  // Duration get end {
-  //   return _end;
-  // }
-
-  // set start (Duration p) {
-  //   if (nextEffect != null){
-  //     _start = p.compareTo(_end) <= 0 ? p : _end;
-  //   }
-  //   else
-  //     _start = p;
-  // }
-
-  // Duration get start {
-  //   return _start;
-  // }
 
   Effect? previousEffect;
   Effect? nextEffect;
