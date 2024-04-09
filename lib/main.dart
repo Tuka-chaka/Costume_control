@@ -166,8 +166,6 @@ class _PatternViewPageState extends State<PatternViewPage> {
 
   Map<int, String> _ledToSequences = {}; 
 
-  List<Color> _colors = List<Color>.filled(8, Colors.black);
-
   int? _selectedId;
   Effect? _selectedEffect;
   bool _inEffectSettings = false;
@@ -404,7 +402,28 @@ class _PatternViewPageState extends State<PatternViewPage> {
         }
       }
     });
-    // sendPackage("$_selectedId,${color.red},${color.green},${color.blue}");
+  }
+
+  void _onSequenceDeleted(String sequence) {
+    setState(() {
+      if (_selectedSequence == sequence)
+        _selectedSequence = _sequences.keys.lastWhere((name) => name != sequence);
+      _sequences.remove(sequence);
+      _ledToSequences.removeWhere((key, value) => value == sequence);
+    });
+    _onPositionChanged(_position!);
+  }
+
+  void _onEffectDeleted(Effect effect) {
+    setState(() {
+      _selectedEffect = null;
+      _sequences[_selectedSequence]!.remove(effect);
+      if (effect.previousEffect != null)
+        effect.previousEffect!.nextEffect = effect.nextEffect;
+      if (effect.nextEffect != null)
+        effect.nextEffect!.previousEffect = effect.previousEffect;
+    });
+    _onPositionChanged(_position!);
   }
   
   @override
@@ -517,6 +536,20 @@ class _PatternViewPageState extends State<PatternViewPage> {
                           Spacer(),
                           Text(_selectedEffect.toString()),
                           Spacer(),
+                          IconButton(
+                            icon: Icon(Icons.delete_forever),
+                            onPressed: () => showDialog(
+                              context: context,
+                              builder: (context) => AlertDialog(
+                                title: Text("delete?"),
+                                content: Text(_selectedEffect.toString()),
+                                actions: [
+                                  TextButton(onPressed: () => Navigator.of(context).pop(), child: Text("no")),
+                                  TextButton(onPressed: () => {_onEffectDeleted(_selectedEffect!), Navigator.of(context).pop()}, child: Text("yes"))
+                                ]
+                              )
+                            ),
+                          ),
                           IconButton(
                             icon: Icon(Icons.palette),
                             onPressed: () => {
@@ -709,11 +742,17 @@ class _PatternViewPageState extends State<PatternViewPage> {
                                               }),
                                             icon: Icon(Icons.copy)),
                                         IconButton(
-                                            onPressed: () => setState(() {
-                                              if (_selectedSequence == sequence)
-                                                _selectedSequence = _sequences.keys.lastWhere((name) => name != sequence);
-                                              _sequences.remove(sequence);
-                                            }),
+                                            onPressed: () => showDialog(
+                                              context: context,
+                                              builder: (context) => AlertDialog(
+                                                title: Text("delete?"),
+                                                content: Text(sequence),
+                                                actions: [
+                                                  TextButton(onPressed: () => Navigator.of(context).pop(), child: Text("no")),
+                                                  TextButton(onPressed: () => {_onSequenceDeleted(sequence), Navigator.of(context).pop()}, child: Text("yes"))
+                                                ]
+                                              )
+                                            ),
                                             icon: Icon(Icons.delete_forever)),
                                       ],
                                     ),
