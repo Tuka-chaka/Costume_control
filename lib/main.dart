@@ -286,10 +286,10 @@ class _PatternViewPageState extends State<PatternViewPage> {
     setState(() {
       _position = p;
       _elapsedFraction = _position!.inMicroseconds / _duration!.inMicroseconds;
-      for (int i = 0; i < _colors.length; i++) {
+      for (int i = 0; i < _leds.length; i++) {
         if (_sequences[_ledToSequences[i]] != null){
           Effect? effect = _sequences[_ledToSequences[i]]!.firstWhere((effect) => effect.start <= p && effect.end >= p, orElse: () => SolidColorEffect(p, p, Colors.black));
-          _colors[i] = effect.getColor(p);
+          _leds[i].color = effect.getColor(p);
         }
       }
     });
@@ -297,7 +297,7 @@ class _PatternViewPageState extends State<PatternViewPage> {
     for (var costume in _costumes.keys){
       for (var strip in _costumes[costume]!.strips.keys){
         for(var led in _costumes[costume]!.strips[strip]!){
-          Color color = _colors[led.id];
+          Color color = _leds[led.id].color;
           payload[costume]![strip.toString()]!.add("${createPackedColor(color.red, color.green, color.blue)}");
         }
       }
@@ -398,9 +398,9 @@ class _PatternViewPageState extends State<PatternViewPage> {
 
   void _onColorChanged(Color color) {
     setState(() {
-      for (int i = 0; i < _colors.length; i++) {
+      for (int i = 0; i < _leds.length; i++) {
         if (_ledToSequences[i] == _selectedSequence){
-          _colors[i] = color;
+          _leds[i].color = color;
         }
       }
     });
@@ -424,17 +424,17 @@ class _PatternViewPageState extends State<PatternViewPage> {
                         left: strip[i].x,
                         top: strip[i].y,
                         child: GestureDetector(
-                          onTap: () => _onLedTapped(strip[i].id),
+                          onTap: () => _onLedTapped(_leds.indexOf(strip[i])),
                           child: Container(
                             width: 20,
                             height: 20,
                             decoration: BoxDecoration(
-                              boxShadow: strip[i].id == _selectedId ? [BoxShadow(
+                              boxShadow: _leds.indexOf(strip[i]) == _selectedId ? [BoxShadow(
                                 blurRadius: 5.0,
                                 blurStyle: BlurStyle.outer,
                                 color: Colors.grey
                               )] : [],
-                              color: _colors[strip[i].id],
+                              color: strip[i].color,
                               border: Border.all(width: 1.0, color:  Colors.grey),
                               shape: BoxShape.circle,
                             ),
@@ -679,12 +679,14 @@ class _PatternViewPageState extends State<PatternViewPage> {
                           menuHeight: 200.0,
                           expandedInsets: EdgeInsets.all(8.0),
                           initialSelection: _selectedSequence,
-                          onSelected: (value) => setState(() {
+                          onSelected: (value) => {
+                            setState(() {
                                 _selectedEffect = null;
                                 _selectedSequence = value!;
-                                _ledToSequences[_selectedId!] =
-                                    _selectedSequence;
-                              }),
+                                _ledToSequences[_selectedId!] = _selectedSequence;
+                            }),
+                            _onPositionChanged(_position!)
+                          },
                           dropdownMenuEntries: [
                             for (var sequence in _sequences.keys)
                               DropdownMenuEntry(
@@ -819,6 +821,6 @@ class Led {
   late int id;
   late double x;
   late double y;
-  late Color color;
+  Color color = Colors.black;
   Led(this.id, this.x, this.y);
 }
