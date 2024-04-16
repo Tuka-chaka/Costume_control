@@ -60,7 +60,6 @@ class _MyHomePageState extends State<MyHomePage> {
     super.initState();
     widget.storage.createDirectories();
     widget.storage.readData("shows.json").then((value) {
-      print(value);
       setState(() {
         _shows = jsonDecode(value);
       });
@@ -69,6 +68,10 @@ class _MyHomePageState extends State<MyHomePage> {
 
   void _onButtonTapped(String showTitle) {
     Navigator.push(context,MaterialPageRoute(builder: (context) => ShowPage(title: showTitle, patterns: _shows[showTitle]["patterns"])),);
+  }
+
+  void _onEditButtonTapped() {
+    Navigator.push(context,MaterialPageRoute(builder: (context) => CostumePage(title: "costume 1")),);
   }
 
   void onPatternAdded() {
@@ -82,7 +85,16 @@ class _MyHomePageState extends State<MyHomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        // leading: IconButton(onPressed: () => widget.storage.writeData(jsonEncode({"duration": "02.33"}), "patterns/pattern 1.json"), icon: Icon(Icons.local_pizza)),
+    //     leading: IconButton(onPressed: () => widget.storage.writeData(jsonEncode({
+    //   "0": [
+    //     Led(100, 100),
+    //     Led(200, 100)
+    //   ],
+    //   "1": [
+    //     Led(100, 200),
+    //     Led(200, 200)
+    //   ]
+    // }), "costumes/costume 1.json"), icon: Icon(Icons.local_pizza)),
         title: Text(widget.title),
         surfaceTintColor: Colors.transparent
       ),
@@ -102,7 +114,7 @@ class _MyHomePageState extends State<MyHomePage> {
                     subtitle: Text("${_shows[show]["patterns"].length} pattern${_shows[show]["patterns"].length > 1 ? "s" : ""}"),
                     onTap: () => _onButtonTapped(show),
                     trailing: IconButton(
-                      onPressed: () => {},
+                      onPressed: () => _onEditButtonTapped(),
                       icon: Icon(Icons.edit)),
                   )
                 ] + [
@@ -133,25 +145,31 @@ class _CostumePageState extends State<CostumePage> {
   Costume _costume = Costume({});
   int? _selectedId;
   late List<Led> _leds = [];
+  final TextEditingController _controller = TextEditingController();
 
   @override
   void initState() {
     super.initState();
+    _controller.text = widget.title;
     DataStorage().readData("costumes/${widget.title}.json").then((value) {
       setState(() {
-        _costume.strips = (jsonDecode(value));
+        Map<String, dynamic> costume = jsonDecode(value);
+        for (var strip in costume.keys){
+          _costume.strips[strip] = [];
+          for(var led in costume[strip]){
+            Led newLed = Led(led["x"], led["y"]);
+            _leds.add(newLed);
+            _costume.strips[strip]!.add(newLed);
+          }
+        }
       });
-      print(_costume);
+      print(_leds);
     });
     for (var strip in _costume.strips.keys){
       for(var led in _costume.strips[strip]!){
         _leds.add(led);
       }
     }
-  }
-
-  void _onButtonTapped() {
-    Navigator.push(context,MaterialPageRoute(builder: (context) => const PatternViewPage()),);
   }
 
   void _onLedTapped(int index) {
@@ -164,48 +182,91 @@ class _CostumePageState extends State<CostumePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.title),
+        title: TextField(
+          controller: _controller,
+        ),
         surfaceTintColor: Colors.transparent
       ),
       body: Center(
         child: InteractiveViewer(
               child: SizedBox(
-                height: MediaQuery.of(context).size.height - 400,
+                height: MediaQuery.of(context).size.height,
                 child: Stack(
-                  children: [
-                    for (var strip in _costume.strips.values)
-                      for (var i = 0; i < strip.length; i++)
-                      Positioned(
-                        left: strip[i].x,
-                        top: strip[i].y,
-                        child: GestureDetector(
-                          onTap: () => _onLedTapped(_leds.indexOf(strip[i])),
-                          child: Container(
-                            width: 20,
-                            height: 20,
-                            decoration: BoxDecoration(
-                              boxShadow: _leds.indexOf(strip[i]) == _selectedId ? [BoxShadow(
-                                blurRadius: 5.0,
-                                blurStyle: BlurStyle.outer,
-                                color: Colors.grey
-                              )] : [],
-                              color: strip[i].color,
-                              border: Border.all(width: 1.0, color:  Colors.grey),
-                              shape: BoxShape.circle,
+                  children:  [
+                    for (var x = 0; x < 30; x++)
+                      for (var y = 0; y < 50; y++)
+                        Positioned(
+                          left: x * 20,
+                          top: y * 20,
+                          child: DragTarget(
+                            onAcceptWithDetails: (DragTargetDetails<int> details) {
+                              setState(() {
+                                _leds[details.data].x = x*20;
+                                _leds[details.data].y = y*20;
+                              });
+                              print(_leds);
+                            },
+                            builder:(context, candidateData, rejectedData) => Container(
+                              width: 20,
+                              height: 20,
+                              child: Center(
+                                child: Container(
+                                  width: 2,
+                                  height: 2,
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey,
+                                    shape: BoxShape.circle,),
+                                                          ),
+                              ),
                             ),
-                            child: Center(
-                                    child: Text(
-                                    i.toString(),
-                                    style: TextStyle(
-                                      color: Colors.grey,
-                                      fontSize: 10
-                                    ),
-                                    )
-                                    )
-                          ),
                         )
                       )
-                  ] 
+                  ] + [
+                    for (var strip in _costume.strips.values)
+                      for (var i = 0; i < strip.length; i++)
+                         Positioned(
+                          left: strip[i].x,
+                          top: strip[i].y,
+                          child: Draggable(
+                            data: _leds.indexOf(strip[i]),
+                            feedback: Container(
+                                  width: 20,
+                                  height: 20,
+                                  decoration: BoxDecoration(
+                                    color: strip[i].color,
+                                    border: Border.all(width: 1.0, color:  Colors.grey),
+                                    shape: BoxShape.circle,
+                                  )
+                                ),
+                            child: GestureDetector(
+                            onTap: () => _onLedTapped(_leds.indexOf(strip[i])),
+                            child: Container(
+                              width: 20,
+                              height: 20,
+                              decoration: BoxDecoration(
+                                boxShadow: _leds.indexOf(strip[i]) == _selectedId ? [BoxShadow(
+                                  blurRadius: 5.0,
+                                  blurStyle: BlurStyle.outer,
+                                  color: Colors.grey
+                                )] : [],
+                                color: strip[i].color,
+                                border: Border.all(width: 1.0, color:  Colors.grey),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Center(
+                                      child: Text(
+                                      i.toString(),
+                                      style: TextStyle(
+                                        color: Colors.grey,
+                                        fontSize: 10
+                                      ),
+                                    )
+                                  )
+                            ),
+                          )
+                        )
+                        )
+                  ]
                 ) 
               ),
             )
@@ -231,18 +292,18 @@ class _ShowPageState extends State<ShowPage> {
   @override
   void initState() {
     super.initState();
+    print(widget.patterns);
     for (var pattern in widget.patterns){
     DataStorage().readData("patterns/$pattern.json").then((value) {
       setState(() {
         _patterns[pattern] = (jsonDecode(value));
       });
-      print(_patterns);
     });
     }
   }
 
-  void _onButtonTapped() {
-    Navigator.push(context,MaterialPageRoute(builder: (context) => const PatternViewPage()),);
+  void _onButtonTapped(String title) {
+    Navigator.push(context,MaterialPageRoute(builder: (context) => PatternViewPage(title: title)),);
   }
 
   @override
@@ -259,7 +320,7 @@ class _ShowPageState extends State<ShowPage> {
               ListTile(
                 title: Text(pattern.key),
                 subtitle: Text(pattern.value["duration"]),
-                onTap: _onButtonTapped,
+                onTap: () => _onButtonTapped(pattern.key),
                 trailing: IconButton(
                   onPressed: () => {},
                   icon: Icon(Icons.edit)),
@@ -272,7 +333,9 @@ class _ShowPageState extends State<ShowPage> {
 }
 
 class PatternViewPage extends StatefulWidget {
-  const PatternViewPage({super.key});
+  PatternViewPage({super.key, required this.title});
+
+  final String title;
 
   @override
   State<PatternViewPage> createState() => _PatternViewPageState();
@@ -282,21 +345,21 @@ class _PatternViewPageState extends State<PatternViewPage> {
 
   Map<String, Costume> _costumes = {
     "Costume 1": Costume({
-      0: [
+      "0": [
         Led(100, 100),
         Led(200, 100)
       ],
-      1: [
+      "1": [
         Led(100, 200),
         Led(200, 200)
       ]
     }),
     "Costume 2": Costume({
-      0: [
+      "0": [
         Led(100, 150),
         Led(200, 150)
       ],
-      1: [
+      "1": [
         Led(100, 250),
         Led(200, 250)
       ]
@@ -305,6 +368,7 @@ class _PatternViewPageState extends State<PatternViewPage> {
 
   late Costume _costume;
   late List<Led> _leds = [];
+  List<int> _waveformData = [];
 
   Map<int, String> _ledToSequences = {}; 
 
@@ -569,12 +633,27 @@ class _PatternViewPageState extends State<PatternViewPage> {
     });
     _onPositionChanged(_position!);
   }
+
+  void saveData() {
+    Map<String, dynamic> data = {"leds" : {}, "sequences" : {}};
+    for (var led in _ledToSequences.keys){
+      data["leds"][led] = _ledToSequences[led];
+    }
+
+    for (var sequence in _sequences.keys) {
+      data["sequences"][sequence] = [];
+      for (var effect in _sequences[sequence]!)
+        if (effect is SolidColorEffect)
+          data["sequences"][sequence].add({"type": "SolidColorEffect", "start": effect.start, "end": effect.end, "color": effect.color});
+      DataStorage().writeData(jsonEncode(data), "patterns/");
+    }
+  }
   
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text("Starless"),
+        title: Text(widget.title),
         leading: BackButton(),
         surfaceTintColor: Colors.transparent
       ),
@@ -981,6 +1060,12 @@ class SolidColorEffect extends Effect {
     return color;
   }
 
+  Map<String, dynamic> toJson() => {
+        'start': start,
+        'end': end,
+        'color' : color
+      };
+
   @override
   Widget settings(onColorChanged) {
     return ColorPicker(
@@ -1006,7 +1091,7 @@ class SolidColorEffect extends Effect {
 
 
 class Costume {
-  Map<int, List<Led>> strips = {};
+  Map<String, List<Led>> strips = {};
   Costume(this.strips);
 }
 
@@ -1015,6 +1100,15 @@ class Led {
   late double y;
   Color color = Colors.black;
   Led(this.x, this.y);
+
+  Led.fromJson(Map<String, dynamic> json)
+      : x = json['x'] as double,
+        y = json['y'] as double;
+
+  Map<String, dynamic> toJson() => {
+        'x': x,
+        'y': y,
+      };
 }
 
 class DataStorage {
@@ -1031,7 +1125,6 @@ class DataStorage {
   Future<File> writeData(String data, String route) async {
     final path = await _localPath;
     final file = File('$path/$route');
-    print('$path/$route');
 
     return file.writeAsString(data);
   }
@@ -1045,7 +1138,6 @@ class DataStorage {
 
       return contents;
     } catch (e) {
-      print(e.toString());
       return e.toString();
     }
   }
