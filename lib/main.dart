@@ -522,6 +522,7 @@ class _PatternViewPageState extends State<PatternViewPage> {
       }
     });
     _onPositionChanged(_position!);
+    saveData();
   }
 
   void _onWidthChanged(ScaleUpdateDetails details, double maxWidth) {
@@ -571,6 +572,7 @@ class _PatternViewPageState extends State<PatternViewPage> {
     setState(() {
       _sequences[_selectedSequence]!.insert(_sequences[_selectedSequence]!.lastIndexWhere((previousEffect) => previousEffect.end <= effect.start) + 1, effect);
     });
+    saveData();
   }
 
   void _onEffectDragged(Effect effect, DragUpdateDetails details, double maxWidth) {
@@ -620,6 +622,7 @@ class _PatternViewPageState extends State<PatternViewPage> {
       _ledToSequences.removeWhere((key, value) => value == sequence);
     });
     _onPositionChanged(_position!);
+    saveData();
   }
 
   void _onEffectDeleted(Effect effect) {
@@ -632,21 +635,23 @@ class _PatternViewPageState extends State<PatternViewPage> {
         effect.nextEffect!.previousEffect = effect.previousEffect;
     });
     _onPositionChanged(_position!);
+    saveData();
   }
 
   void saveData() {
-    Map<String, dynamic> data = {"leds" : {}, "sequences" : {}};
+    Map<String, dynamic> data = {"duration": "3.55", "leds" : {}, "sequences" : {}, "waveform": progressStream.value.waveform!.data};
     for (var led in _ledToSequences.keys){
-      data["leds"][led] = _ledToSequences[led];
+      data["leds"][led.toString()] = _ledToSequences[led];
     }
 
     for (var sequence in _sequences.keys) {
       data["sequences"][sequence] = [];
       for (var effect in _sequences[sequence]!)
         if (effect is SolidColorEffect)
-          data["sequences"][sequence].add({"type": "SolidColorEffect", "start": effect.start, "end": effect.end, "color": effect.color});
-      DataStorage().writeData(jsonEncode(data), "patterns/");
+          data["sequences"][sequence].add({"type": "SolidColorEffect", "start": effect.start.inMicroseconds, "end": effect.end.inMicroseconds, "color": effect.color.value});
+      DataStorage().writeData(jsonEncode(data), "patterns/${widget.title}");
     }
+    print("lots of data saved AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
   }
   
   @override
@@ -998,7 +1003,7 @@ class _PatternViewPageState extends State<PatternViewPage> {
                       },
                       icon: Icon(Icons.check)
                     ),
-                    _selectedEffect!.settings(_onColorChanged),
+                    _selectedEffect!.settings(_onColorChanged, saveData),
                   ],
                 );
               },
@@ -1039,7 +1044,7 @@ class Effect {
     return Colors.black;
   }
 
-  Widget settings(onColorChanged) {
+  Widget settings(onColorChanged, onColorChangeEnded) {
     return Text("No settings defined");
   }
 
@@ -1067,13 +1072,14 @@ class SolidColorEffect extends Effect {
       };
 
   @override
-  Widget settings(onColorChanged) {
+  Widget settings(onColorChanged, onColorChangeEnded) {
     return ColorPicker(
       enableShadesSelection: false,
       onColorChanged: (color) => {
         this.color = color,
         onColorChanged(color),
         },
+      onColorChangeEnd: (color) => onColorChangeEnded(),
       color: this.color,
       pickersEnabled: const {
         ColorPickerType.primary: false,
