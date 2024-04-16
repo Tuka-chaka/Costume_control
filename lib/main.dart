@@ -24,24 +24,26 @@ void main() => runApp(const MyApp());
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  static const appTitle = 'Костюмчик';
+  static const appTitle = 'Сценарии';
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      debugShowCheckedModeBanner: false,
       color: Color(0xfff0f0f0),
       theme: ThemeData(
       brightness: Brightness.dark,
       primaryColor: Color(0xffd0d0d0)
       ),
       title: appTitle,
-      home: MyHomePage(title: appTitle),
+      home: MyHomePage(title: appTitle, storage: DataStorage()),
     );
   }
 }
 
 class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
+  const MyHomePage({super.key, required this.title, required this.storage});
+  final DataStorage storage;
 
   final String title;
 
@@ -50,80 +52,220 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  int _selectedIndex = 0;
-  static const TextStyle optionStyle =
-      TextStyle(fontSize: 30, fontWeight: FontWeight.bold);
-  static const List<Widget> _widgetOptions = <Widget>[
-    PatternViewPage(),
-    Text(
-      'Index 1: Business',
-      style: optionStyle,
-    ),
-    Text(
-      'Index 2: School',
-      style: optionStyle,
-    ),
-  ];
 
-  void _onItemTapped(int index) {
+  Map<String, dynamic> _shows = {};
+
+  @override
+  void initState() {
+    super.initState();
+    widget.storage.createDirectories();
+    widget.storage.readData("shows.json").then((value) {
+      print(value);
+      setState(() {
+        _shows = jsonDecode(value);
+      });
+    });
+  }
+
+  void _onButtonTapped(String showTitle) {
+    Navigator.push(context,MaterialPageRoute(builder: (context) => ShowPage(title: showTitle, patterns: _shows[showTitle]["patterns"])),);
+  }
+
+  void onPatternAdded() {
     setState(() {
-      _selectedIndex = index;
+      _shows["show 1"] = {"costumes" : ["costume 1", "costume 2"], "patterns" : ["pattern 1", "pattern 2"]};
+    });
+    widget.storage.writeData(jsonEncode(_shows), "shows.json");
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        // leading: IconButton(onPressed: () => widget.storage.writeData(jsonEncode({"duration": "02.33"}), "patterns/pattern 1.json"), icon: Icon(Icons.local_pizza)),
+        title: Text(widget.title),
+        surfaceTintColor: Colors.transparent
+      ),
+      body: Center(
+        child: ListView(
+              children: [
+                for (var show in _shows.keys)
+                  ListTile(
+                    leading: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.man),
+                        Text("x${_shows[show]["costumes"].length}")
+                      ],
+                    ),
+                    title: Text(show),
+                    subtitle: Text("${_shows[show]["patterns"].length} pattern${_shows[show]["patterns"].length > 1 ? "s" : ""}"),
+                    onTap: () => _onButtonTapped(show),
+                    trailing: IconButton(
+                      onPressed: () => {},
+                      icon: Icon(Icons.edit)),
+                  )
+                ] + [
+                  ListTile(
+                    leading: IconButton(
+                      onPressed: () => onPatternAdded(),
+                      icon: Icon(Icons.add)),
+                    title: Text("Add show"),
+                  )
+                ]
+          ),
+      ),
+    );
+  }
+}
+
+class CostumePage extends StatefulWidget {
+  CostumePage({super.key, required this.title});
+
+  final String title;
+
+  @override
+  State<CostumePage> createState() => _CostumePageState();
+}
+
+class _CostumePageState extends State<CostumePage> {
+
+  Costume _costume = Costume({});
+  int? _selectedId;
+  late List<Led> _leds = [];
+
+  @override
+  void initState() {
+    super.initState();
+    DataStorage().readData("costumes/${widget.title}.json").then((value) {
+      setState(() {
+        _costume.strips = (jsonDecode(value));
+      });
+      print(_costume);
+    });
+    for (var strip in _costume.strips.keys){
+      for(var led in _costume.strips[strip]!){
+        _leds.add(led);
+      }
+    }
+  }
+
+  void _onButtonTapped() {
+    Navigator.push(context,MaterialPageRoute(builder: (context) => const PatternViewPage()),);
+  }
+
+  void _onLedTapped(int index) {
+    setState(() {
+      _selectedId = index;
     });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.title), surfaceTintColor: Colors.transparent),
-      body: Center(
-        child: _widgetOptions[_selectedIndex],
+      appBar: AppBar(
+        title: Text(widget.title),
+        surfaceTintColor: Colors.transparent
       ),
-      drawer: Drawer(
-        // Add a ListView to the drawer. This ensures the user can scroll
-        // through the options in the drawer if there isn't enough vertical
-        // space to fit everything.
-        child: ListView(
-          // Important: Remove any padding from the ListView.
-          padding: EdgeInsets.zero,
-          children: [
-            const DrawerHeader(
-              decoration: BoxDecoration(
-                color: Colors.blue,
+      body: Center(
+        child: InteractiveViewer(
+              child: SizedBox(
+                height: MediaQuery.of(context).size.height - 400,
+                child: Stack(
+                  children: [
+                    for (var strip in _costume.strips.values)
+                      for (var i = 0; i < strip.length; i++)
+                      Positioned(
+                        left: strip[i].x,
+                        top: strip[i].y,
+                        child: GestureDetector(
+                          onTap: () => _onLedTapped(_leds.indexOf(strip[i])),
+                          child: Container(
+                            width: 20,
+                            height: 20,
+                            decoration: BoxDecoration(
+                              boxShadow: _leds.indexOf(strip[i]) == _selectedId ? [BoxShadow(
+                                blurRadius: 5.0,
+                                blurStyle: BlurStyle.outer,
+                                color: Colors.grey
+                              )] : [],
+                              color: strip[i].color,
+                              border: Border.all(width: 1.0, color:  Colors.grey),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Center(
+                                    child: Text(
+                                    i.toString(),
+                                    style: TextStyle(
+                                      color: Colors.grey,
+                                      fontSize: 10
+                                    ),
+                                    )
+                                    )
+                          ),
+                        )
+                      )
+                  ] 
+                ) 
               ),
-              child: Text('Меню'),
-            ),
-            ListTile(
-              title: const Text('Сценарии'),
-              selected: _selectedIndex == 0,
-              onTap: () {
-                // Update the state of the app
-                _onItemTapped(0);
-                // Then close the drawer
-                Navigator.pop(context);
-              },
-            ),
-            ListTile(
-              title: const Text('Другое'),
-              selected: _selectedIndex == 1,
-              onTap: () {
-                // Update the state of the app
-                _onItemTapped(1);
-                // Then close the drawer
-                Navigator.pop(context);
-              },
-            ),
-            ListTile(
-              title: const Text('School'),
-              selected: _selectedIndex == 2,
-              onTap: () {
-                // Update the state of the app
-                _onItemTapped(2);
-                // Then close the drawer
-                Navigator.pop(context);
-              },
-            ),
-          ],
-        ),
+            )
+      ),
+    );
+  }
+}
+
+class ShowPage extends StatefulWidget {
+  ShowPage({super.key, required this.title, required this.patterns});
+
+  final String title;
+  final List<dynamic> patterns;
+
+  @override
+  State<ShowPage> createState() => _ShowPageState();
+}
+
+class _ShowPageState extends State<ShowPage> {
+
+  Map<String, Map<String, dynamic>> _patterns = {};
+
+  @override
+  void initState() {
+    super.initState();
+    for (var pattern in widget.patterns){
+    DataStorage().readData("patterns/$pattern.json").then((value) {
+      setState(() {
+        _patterns[pattern] = (jsonDecode(value));
+      });
+      print(_patterns);
+    });
+    }
+  }
+
+  void _onButtonTapped() {
+    Navigator.push(context,MaterialPageRoute(builder: (context) => const PatternViewPage()),);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.title),
+        surfaceTintColor: Colors.transparent
+      ),
+      body: Center(
+        child: ListView(
+          children: [
+            for (var pattern in _patterns.entries)
+              ListTile(
+                title: Text(pattern.key),
+                subtitle: Text(pattern.value["duration"]),
+                onTap: _onButtonTapped,
+                trailing: IconButton(
+                  onPressed: () => {},
+                  icon: Icon(Icons.edit)),
+              )
+          ]
+        )
       ),
     );
   }
@@ -141,22 +283,22 @@ class _PatternViewPageState extends State<PatternViewPage> {
   Map<String, Costume> _costumes = {
     "Costume 1": Costume({
       0: [
-        Led(0, 100, 100),
-        Led(1, 200, 100)
+        Led(100, 100),
+        Led(200, 100)
       ],
       1: [
-        Led(2, 100, 200),
-        Led(3, 200, 200)
+        Led(100, 200),
+        Led(200, 200)
       ]
     }),
     "Costume 2": Costume({
       0: [
-        Led(4, 100, 150),
-        Led(5, 200, 150)
+        Led(100, 150),
+        Led(200, 150)
       ],
       1: [
-        Led(6, 100, 250),
-        Led(7, 200, 250)
+        Led(100, 250),
+        Led(200, 250)
       ]
     }),
   };
@@ -280,13 +422,15 @@ class _PatternViewPageState extends State<PatternViewPage> {
   }
 
   void _onPositionChanged(Duration p) {
-    Map<String, Map<String, List<String>>> payload = _costumes.map((name, costume) => MapEntry(name, costume.strips.map((key, value) => MapEntry(key.toString(), []))));
+    Map<String, Map<String, List<String>>> payload = _costumes.map((name, costume) => MapEntry(
+      name, costume.strips.map((key, value) => MapEntry(key.toString(), []))));
     setState(() {
       _position = p;
       _elapsedFraction = _position!.inMicroseconds / _duration!.inMicroseconds;
       for (int i = 0; i < _leds.length; i++) {
         if (_sequences[_ledToSequences[i]] != null){
-          Effect? effect = _sequences[_ledToSequences[i]]!.firstWhere((effect) => effect.start <= p && effect.end >= p, orElse: () => SolidColorEffect(p, p, Colors.black));
+          Effect? effect = _sequences[_ledToSequences[i]]!.firstWhere(
+            (effect) => effect.start <= p && effect.end >= p, orElse: () => SolidColorEffect(p, p, Colors.black));
           _leds[i].color = effect.getColor(p);
         }
       }
@@ -295,7 +439,7 @@ class _PatternViewPageState extends State<PatternViewPage> {
     for (var costume in _costumes.keys){
       for (var strip in _costumes[costume]!.strips.keys){
         for(var led in _costumes[costume]!.strips[strip]!){
-          Color color = _leds[led.id].color;
+          Color color = led.color;
           payload[costume]![strip.toString()]!.add("${createPackedColor(color.red, color.green, color.blue)}");
         }
       }
@@ -428,7 +572,14 @@ class _PatternViewPageState extends State<PatternViewPage> {
   
   @override
   Widget build(BuildContext context) {
-    return Column(
+    return Scaffold(
+      appBar: AppBar(
+        title: Text("Starless"),
+        leading: BackButton(),
+        surfaceTintColor: Colors.transparent
+      ),
+      body: Center(
+        child: Column(
       children: [
         Stack(
           children: [
@@ -777,15 +928,18 @@ class _PatternViewPageState extends State<PatternViewPage> {
         ),
         
       ],
+    )
+    )
     );
   }
 }
 
-void sendPackage(data) async {
-
-  RawDatagramSocket udp = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 4209);
-  udp.send(utf8.encode(data), InternetAddress('192.168.43.11'), 4210);
-  print("$data sent.");
+void sendPackage(data)  {
+   RawDatagramSocket.bind(InternetAddress.anyIPv4, 4210).then((RawDatagramSocket udpSocket) {
+    udpSocket.broadcastEnabled = true;
+    udpSocket.send(utf8.encode(data), InternetAddress("192.168.43.255"), 4210);
+    print("$data sent.");
+   });
 }
 
 int createPackedColor(int red, int green, int blue) {
@@ -857,9 +1011,49 @@ class Costume {
 }
 
 class Led {
-  late int id;
   late double x;
   late double y;
   Color color = Colors.black;
-  Led(this.id, this.x, this.y);
+  Led(this.x, this.y);
+}
+
+class DataStorage {
+  Future<String> get _localPath async {
+    final directory = await getApplicationDocumentsDirectory();
+    return directory.path;
+  }
+
+  Future<File> get _localFile async {
+    final path = await _localPath;
+    return File('$path/test.json');
+  }
+
+  Future<File> writeData(String data, String route) async {
+    final path = await _localPath;
+    final file = File('$path/$route');
+    print('$path/$route');
+
+    return file.writeAsString(data);
+  }
+
+  Future<String> readData(String route) async {
+    try {
+      final path = await _localPath;
+      final file = File('$path/$route');
+
+      final contents = await file.readAsString();
+
+      return contents;
+    } catch (e) {
+      print(e.toString());
+      return e.toString();
+    }
+  }
+
+  void createDirectories() async {
+    final path = await _localPath;
+    new Directory('$path/patterns').createSync();
+    new Directory('$path/costumes').createSync();
+    new Directory('$path/audio').createSync();
+  }
 }
