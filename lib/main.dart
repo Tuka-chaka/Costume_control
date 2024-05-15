@@ -54,8 +54,11 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> {
 
   Map<String, dynamic> _shows = {};
-  List<dynamic> _patterns = [];
+  Map<String, dynamic> _patterns = {};
+  Map<String, dynamic> _costumes = {};
   int _selectedIndex = 0;
+
+  static const List<String> _titleOptions = ["Сценарии", "Паттерны", "Костюмы"];
 
   @override
   void initState() {
@@ -66,10 +69,21 @@ class _MyHomePageState extends State<MyHomePage> {
         _shows = jsonDecode(value);
       });
     });
-    widget.storage.getPatterns().then((value) {
+    widget.storage.getFiles("/patterns").then((value) {
+      int counter = 1;
       setState(() {
         for (var pattern in value){
-          _patterns.add(jsonDecode(pattern));
+          _patterns["pattern " + counter.toString()] = (jsonDecode(pattern));
+          counter += 1;
+        }
+      });
+    });
+    widget.storage.getFiles("/costumes").then((value) {
+      int counter = 1;
+      setState(() {
+        for (var costume in value){
+          _costumes["costume " + counter.toString()] = jsonDecode(costume);
+          counter += 1;
         }
       });
     });
@@ -86,8 +100,8 @@ class _MyHomePageState extends State<MyHomePage> {
     Navigator.push(context,MaterialPageRoute(builder: (context) => ShowPage(title: showTitle, patterns: _shows[showTitle]["patterns"])),);
   }
 
-  void _onEditButtonTapped() {
-    Navigator.push(context,MaterialPageRoute(builder: (context) => CostumePage(title: "costume 1")),);
+  void _onCostumeAdded() {
+    Navigator.push(context,MaterialPageRoute(builder: (context) => CostumePage()),);
   }
 
   void onShowAdded() {
@@ -101,21 +115,15 @@ class _MyHomePageState extends State<MyHomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-    //     leading: IconButton(onPressed: () => widget.storage.writeData(jsonEncode({
-    //   "0": [
-    //     Led(100, 100),
-    //     Led(200, 100)
-    //   ],
-    //   "1": [
-    //     Led(100, 200),
-    //     Led(200, 200)
-    //   ]
-    // }), "costumes/costume 1.json"), icon: Icon(Icons.local_pizza)),
-        actions: [IconButton(onPressed: () => {widget.storage.getPatterns()}, icon: Icon(Icons.search))],
-        title: Text(widget.title),
+        // leading: IconButton(onPressed: () => widget.storage.moveFile(), icon: Icon(Icons.local_pizza)),
+        actions: _selectedIndex == 2 ? [] : [
+          IconButton(onPressed: () => {print(_costumes["costume 1"]["0"][0]["x"])}, icon: Icon(Icons.search)),
+          IconButton(onPressed: () => {}, icon: Icon(Icons.add))
+        ],
+        title: Text(_titleOptions[_selectedIndex]),
         surfaceTintColor: Colors.transparent
       ),
-      body: Center(
+      body: _selectedIndex == 0 ?  Center(
         child: ListView(
               children: [
                 for (var show in _shows.keys)
@@ -131,18 +139,91 @@ class _MyHomePageState extends State<MyHomePage> {
                     subtitle: Text("${_shows[show]["patterns"].length} pattern${_shows[show]["patterns"].length > 1 ? "s" : ""}"),
                     onTap: () => _onButtonTapped(show),
                     trailing: IconButton(
-                      onPressed: () => _onEditButtonTapped(),
+                      onPressed: () => {},
                       icon: Icon(Icons.edit)),
                   )
-                ] + [
-                  ListTile(
-                    leading: IconButton(
-                      onPressed: () => onShowAdded(),
-                      icon: Icon(Icons.add)),
-                    title: Text("Добавить сценарий"),
-                  )
-                ]
+                ] 
+                // + [
+                //   ListTile(
+                //     leading: IconButton(
+                //       onPressed: () => onShowAdded(),
+                //       icon: Icon(Icons.add)),
+                //     title: Text("Добавить сценарий"),
+                //   )
+                // ]
           ),
+      ) : _selectedIndex == 1 ? Center(
+        child: ListView(
+          children: [
+            for (var pattern in _patterns.entries)
+              ListTile(
+                title: Text(pattern.key),
+                subtitle: Text(pattern.value["duration"]),
+                onTap: () => _onButtonTapped(pattern.key),
+                trailing: IconButton(
+                  onPressed: () => {},
+                  icon: Icon(Icons.edit)),
+              )
+          ]
+        )
+      ) : Center(
+        child: Column(
+          children: [
+            Spacer(),
+            Container(
+              height: 350,
+              width: MediaQuery.of(context).size.width,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: [
+                  for (var costume in _costumes.entries)
+                    Card.outlined(
+                      child: Column(
+                        children: [
+                          SizedBox(
+                          height: 310,
+                          width: MediaQuery.of(context).size.width / 2,
+                          child: Stack(
+                            children: [
+                              for (var strip in costume.value.values)
+                                for (var i = 0; i < strip.length; i++)
+                                Positioned(
+                                  left: strip[i]["x"] / 2,
+                                  top: strip[i]["y"] / 2,
+                                    child: Container(
+                                      width: 10,
+                                      height: 10,
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        border: Border.all(width: 1.0, color:  Colors.grey),
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                  )
+                            ] 
+                          ) 
+                        ),
+                        Text(costume.key)
+                        ],
+                      ),
+                    )
+                ]
+              ),
+            ),
+            Spacer(),
+            Card.outlined(
+              child: InkWell(
+                onTap: _onCostumeAdded,
+                child: SizedBox(
+                  height: 100,
+                  child: Center(
+                    child: Icon(Icons.add, size: 30),
+                  ),
+                ),
+              )
+            )
+          ],
+        )
       ),
       bottomNavigationBar: BottomNavigationBar(
         items: const <BottomNavigationBarItem>[
@@ -168,9 +249,7 @@ class _MyHomePageState extends State<MyHomePage> {
 }
 
 class CostumePage extends StatefulWidget {
-  CostumePage({super.key, required this.title});
-
-  final String title;
+  CostumePage({super.key});
 
   @override
   State<CostumePage> createState() => _CostumePageState();
@@ -179,38 +258,55 @@ class CostumePage extends StatefulWidget {
 class _CostumePageState extends State<CostumePage> {
 
   Costume _costume = Costume({});
-  int? _selectedId;
+  String _selectedStrip = "1";
   late List<Led> _leds = [];
   final TextEditingController _controller = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    _controller.text = widget.title;
-    DataStorage().readData("costumes/${widget.title}.json").then((value) {
-      setState(() {
-        Map<String, dynamic> costume = jsonDecode(value);
-        for (var strip in costume.keys){
-          _costume.strips[strip] = [];
-          for(var led in costume[strip]){
-            Led newLed = Led(led["x"], led["y"]);
-            _leds.add(newLed);
-            _costume.strips[strip]!.add(newLed);
-          }
-        }
-      });
-      print(_leds);
-    });
-    for (var strip in _costume.strips.keys){
-      for(var led in _costume.strips[strip]!){
-        _leds.add(led);
-      }
-    }
+    _controller.text = "Новый костюм";
+    // DataStorage().readData("costumes/${widget.title}.json").then((value) {
+    //   setState(() {
+    //     Map<String, dynamic> costume = jsonDecode(value);
+    //     for (var strip in costume.keys){
+    //       _costume.strips[strip] = [];
+    //       for(var led in costume[strip]){
+    //         Led newLed = Led(led["x"], led["y"]);
+    //         _leds.add(newLed);
+    //         _costume.strips[strip]!.add(newLed);
+    //       }
+    //     }
+    //   });
+    //   print(_leds);
+    // });
+    // for (var strip in _costume.strips.keys){
+    //   for(var led in _costume.strips[strip]!){
+    //     _leds.add(led);
+    //   }
+    // }
   }
 
-  void _onLedTapped(int index) {
+  void _onCostumeSaved() {
+    Map<String, dynamic> data = {};
+    for (var strip in _costume.strips.keys) {
+      if (!data.keys.contains(strip)) {
+        data[strip] = [];
+      }
+      for (var led in _costume.strips[strip]!) {
+        data[strip].add({"x": led.x, "y": led.y});
+      }
+    }
+    print(data);
+    DataStorage().writeData(jsonEncode(data), "costumes/${_controller.text}.json");
+  }
+
+  void _onPointTapped(double x, double y) {
     setState(() {
-      _selectedId = index;
+      if (_costume.strips[_selectedStrip] == null) {
+        _costume.strips[_selectedStrip] = [];
+      }
+      _costume.strips[_selectedStrip]!.add(Led(x, y));
     });
   }
 
@@ -221,7 +317,7 @@ class _CostumePageState extends State<CostumePage> {
         title: TextField(
           controller: _controller,
         ),
-        actions: [IconButton(onPressed: () => {}, icon: Icon(Icons.check))],
+        actions: [IconButton(onPressed: () => {_onCostumeSaved()}, icon: Icon(Icons.check))],
         surfaceTintColor: Colors.transparent
       ),
       body: Column(
@@ -247,14 +343,17 @@ class _CostumePageState extends State<CostumePage> {
                             builder:(context, candidateData, rejectedData) => Container(
                               width: 20,
                               height: 20,
-                              child: Center(
-                                child: Container(
-                                  width: 2,
-                                  height: 2,
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey,
-                                    shape: BoxShape.circle,),
-                                                          ),
+                              child: InkWell(
+                                onTap: () => _onPointTapped(x * 20, y * 20),
+                                child: Center(
+                                  child: Container(
+                                    width: 2,
+                                    height: 2,
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey,
+                                      shape: BoxShape.circle,),
+                                  ),
+                                ),
                               ),
                             ),
                         )
@@ -277,16 +376,16 @@ class _CostumePageState extends State<CostumePage> {
                                   )
                                 ),
                             child: GestureDetector(
-                            onTap: () => _onLedTapped(_leds.indexOf(strip[i])),
+                            // onTap: () => _onLedTapped(_leds.indexOf(strip[i])),
                             child: Container(
                               width: 20,
                               height: 20,
                               decoration: BoxDecoration(
-                                boxShadow: _leds.indexOf(strip[i]) == _selectedId ? [BoxShadow(
-                                  blurRadius: 5.0,
-                                  blurStyle: BlurStyle.outer,
-                                  color: Colors.grey
-                                )] : [],
+                                // boxShadow: _leds.indexOf(strip[i]) == _selectedId ? [BoxShadow(
+                                //   blurRadius: 5.0,
+                                //   blurStyle: BlurStyle.outer,
+                                //   color: Colors.grey
+                                // )] : [],
                                 color: strip[i].color,
                                 border: Border.all(width: 1.0, color:  Colors.grey),
                                 shape: BoxShape.circle,
@@ -321,7 +420,14 @@ class _CostumePageState extends State<CostumePage> {
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
                           for (var j = 1; j < 5; j++)
-                        TextButton(onPressed: () => {}, child: Text((i*4+j).toString()), style: ButtonStyle(foregroundColor: MaterialStateProperty.all(Colors.grey)) )
+                        TextButton(onPressed: () => {setState(() {
+                          _selectedStrip = (i*4+j).toString();
+                        })},
+                        child: Text((i*4+j).toString()),
+                        style: ButtonStyle(
+                          foregroundColor: MaterialStateProperty.all(Colors.black),
+                          backgroundColor: (i*4+j).toString() == _selectedStrip ? MaterialStateProperty.all(Colors.orange) : MaterialStateProperty.all(Colors.grey)
+                          ))
                         ],
                       )
                   ],)
@@ -1261,14 +1367,21 @@ class DataStorage {
     return directory.path;
   }
 
-  Future<List<String>> getPatterns() async {
+  Future<List<String>> getFiles(String directory) async {
     final path = await _localPath;
-    final fileList = Directory(path + "/patterns").listSync();
+    final fileList = Directory(path + directory).listSync();
     List<String> stringList = [];
     for (var file in fileList) {
       stringList.add(await (file as File).readAsString());
     }
     return stringList;
+  }
+
+  void moveFile() async {
+    final path = await _localPath;
+    final file = File('$path/costumes/costume 1.json');
+
+    file.deleteSync();
   }
 
   Future<File> writeData(String data, String route) async {
