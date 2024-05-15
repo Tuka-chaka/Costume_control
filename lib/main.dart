@@ -115,7 +115,7 @@ class _MyHomePageState extends State<MyHomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        // leading: IconButton(onPressed: () => widget.storage.moveFile(), icon: Icon(Icons.local_pizza)),
+        leading: IconButton(onPressed: () => widget.storage._localPath.then((value) => print(Directory(value + "/costumes").listSync())), icon: Icon(Icons.local_pizza)),
         actions: _selectedIndex == 2 ? [] : [
           IconButton(onPressed: () => {print(_costumes["costume 1"]["0"][0]["x"])}, icon: Icon(Icons.search)),
           IconButton(onPressed: () => {}, icon: Icon(Icons.add))
@@ -566,7 +566,17 @@ class _PatternViewPageState extends State<PatternViewPage> {
 
   @override
   void initState() {
-    _costume = _costumes["Costume 1"]!;
+    DataStorage().readData("/costumes/drummer.json").then((value) {
+      Map<String, dynamic> data = jsonDecode(value);
+      Costume newCostume = Costume({});
+      for (var strip in data.keys) {
+        newCostume.strips[strip] = [];
+        for (var led in data[strip]) {
+          newCostume.strips[strip]!.add(Led(led["x"], led["y"]));
+        }
+      }
+      _costumes["Costume 1"] = newCostume;
+      _costume = _costumes["Costume 1"]!;
     for (var costume in _costumes.keys){
       for (var strip in _costumes[costume]!.strips.keys){
         for(var led in _costumes[costume]!.strips[strip]!){
@@ -574,6 +584,8 @@ class _PatternViewPageState extends State<PatternViewPage> {
         }
       }
     }
+    });
+   
     DataStorage().readData("patterns/${widget.title}").then((value) {
       Map<String, dynamic> data = jsonDecode(value);
       print(data["duration"]);
@@ -704,6 +716,14 @@ class _PatternViewPageState extends State<PatternViewPage> {
       if (_ledToSequences[index] == null) {
         _ledToSequences[index] = _selectedSequence;
       }
+    });
+    _onPositionChanged(_position!);
+    saveData();
+  }
+
+  void _onEffectScrolled() {
+    setState(() {
+      
     });
     _onPositionChanged(_position!);
     saveData();
@@ -871,41 +891,43 @@ class _PatternViewPageState extends State<PatternViewPage> {
             InteractiveViewer(
               child: SizedBox(
                 height: MediaQuery.of(context).size.height - 400,
-                child: Stack(
-                  children: [
-                    for (var strip in _costume.strips.values)
-                      for (var i = 0; i < strip.length; i++)
-                      Positioned(
-                        left: strip[i].x,
-                        top: strip[i].y,
-                        child: GestureDetector(
-                          onTap: () => _onLedTapped(_leds.indexOf(strip[i])),
-                          child: Container(
-                            width: 20,
-                            height: 20,
-                            decoration: BoxDecoration(
-                              boxShadow: _leds.indexOf(strip[i]) == _selectedId ? [BoxShadow(
-                                blurRadius: 5.0,
-                                blurStyle: BlurStyle.outer,
-                                color: Colors.grey
-                              )] : [],
-                              color: strip[i].color,
-                              border: Border.all(width: 1.0, color:  Colors.grey),
-                              shape: BoxShape.circle,
+                child: Center(
+                  child: Stack(
+                    children: [
+                      for (var strip in _costume.strips.values)
+                        for (var i = 0; i < strip.length; i++)
+                        Positioned(
+                          left: strip[i].x*0.6,
+                          top: strip[i].y*0.6,
+                          child: GestureDetector(
+                            onTap: () => _onLedTapped(_leds.indexOf(strip[i])),
+                            child: Container(
+                              width: 12,
+                              height: 12,
+                              decoration: BoxDecoration(
+                                boxShadow: _leds.indexOf(strip[i]) == _selectedId ? [BoxShadow(
+                                  blurRadius: 3.0,
+                                  blurStyle: BlurStyle.outer,
+                                  color: Colors.grey
+                                )] : [],
+                                color: strip[i].color,
+                                border: Border.all(width: 1.0, color:  Colors.grey),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Center(
+                                      child: Text(
+                                      i.toString(),
+                                      style: TextStyle(
+                                        color: Colors.grey,
+                                        fontSize: 5
+                                      ),
+                                      )
+                                      )
                             ),
-                            child: Center(
-                                    child: Text(
-                                    i.toString(),
-                                    style: TextStyle(
-                                      color: Colors.grey,
-                                      fontSize: 10
-                                    ),
-                                    )
-                                    )
-                          ),
+                          )
                         )
-                      )
-                  ] 
+                    ] 
+                  ),
                 ) 
               ),
             ),
