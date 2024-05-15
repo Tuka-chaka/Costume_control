@@ -54,6 +54,8 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> {
 
   Map<String, dynamic> _shows = {};
+  List<dynamic> _patterns = [];
+  int _selectedIndex = 0;
 
   @override
   void initState() {
@@ -63,6 +65,20 @@ class _MyHomePageState extends State<MyHomePage> {
       setState(() {
         _shows = jsonDecode(value);
       });
+    });
+    widget.storage.getPatterns().then((value) {
+      setState(() {
+        for (var pattern in value){
+          _patterns.add(jsonDecode(pattern));
+        }
+      });
+    });
+    // print(widget.storage._localPath.then((value) => value));
+  }
+
+  void _onItemTapped(int index) {
+    setState(() {
+      _selectedIndex = index;
     });
   }
 
@@ -74,7 +90,7 @@ class _MyHomePageState extends State<MyHomePage> {
     Navigator.push(context,MaterialPageRoute(builder: (context) => CostumePage(title: "costume 1")),);
   }
 
-  void onPatternAdded() {
+  void onShowAdded() {
     setState(() {
       _shows["show 1"] = {"costumes" : ["costume 1", "costume 2"], "patterns" : ["pattern 1", "pattern 2"]};
     });
@@ -95,6 +111,7 @@ class _MyHomePageState extends State<MyHomePage> {
     //     Led(200, 200)
     //   ]
     // }), "costumes/costume 1.json"), icon: Icon(Icons.local_pizza)),
+        actions: [IconButton(onPressed: () => {widget.storage.getPatterns()}, icon: Icon(Icons.search))],
         title: Text(widget.title),
         surfaceTintColor: Colors.transparent
       ),
@@ -120,13 +137,32 @@ class _MyHomePageState extends State<MyHomePage> {
                 ] + [
                   ListTile(
                     leading: IconButton(
-                      onPressed: () => onPatternAdded(),
+                      onPressed: () => onShowAdded(),
                       icon: Icon(Icons.add)),
-                    title: Text("Add show"),
+                    title: Text("Добавить сценарий"),
                   )
                 ]
           ),
       ),
+      bottomNavigationBar: BottomNavigationBar(
+        items: const <BottomNavigationBarItem>[
+          BottomNavigationBarItem(
+            icon: Icon(Icons.star),
+            label: 'Сценарии',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.music_note),
+            label: 'Паттерны',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.man),
+            label: 'Костюмы',
+          ),
+        ],
+        currentIndex: _selectedIndex,
+        selectedItemColor: Colors.amber[800],
+        onTap: _onItemTapped,
+      )
     );
   }
 }
@@ -185,16 +221,18 @@ class _CostumePageState extends State<CostumePage> {
         title: TextField(
           controller: _controller,
         ),
+        actions: [IconButton(onPressed: () => {}, icon: Icon(Icons.check))],
         surfaceTintColor: Colors.transparent
       ),
-      body: Center(
-        child: InteractiveViewer(
+      body: Column(
+        children: [
+          InteractiveViewer(
               child: SizedBox(
-                height: MediaQuery.of(context).size.height,
+                height: MediaQuery.of(context).size.height - 184,
                 child: Stack(
                   children:  [
                     for (var x = 0; x < 30; x++)
-                      for (var y = 0; y < 50; y++)
+                      for (var y = 0; y < 35; y++)
                         Positioned(
                           left: x * 20,
                           top: y * 20,
@@ -265,11 +303,30 @@ class _CostumePageState extends State<CostumePage> {
                             ),
                           )
                         )
-                        )
+                        ),
                   ]
                 ) 
               ),
-            )
+            ), 
+            Container(
+              height: 100,
+              // decoration: BoxDecoration(
+              //   color: Colors.black
+              //   ),
+              child: Column(
+                children: 
+                  [
+                    for (var i = 0; i < 2; i++)
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          for (var j = 1; j < 5; j++)
+                        TextButton(onPressed: () => {}, child: Text((i*4+j).toString()), style: ButtonStyle(foregroundColor: MaterialStateProperty.all(Colors.grey)) )
+                        ],
+                      )
+                  ],)
+              )
+          ]
       ),
     );
   }
@@ -369,6 +426,7 @@ class _PatternViewPageState extends State<PatternViewPage> {
   late Costume _costume;
   late List<Led> _leds = [];
   List<int> _waveformData = [];
+  bool isTesting = false;
 
   Map<int, String> _ledToSequences = {}; 
 
@@ -410,6 +468,25 @@ class _PatternViewPageState extends State<PatternViewPage> {
         }
       }
     }
+    DataStorage().readData("patterns/${widget.title}").then((value) {
+      Map<String, dynamic> data = jsonDecode(value);
+      print(data["duration"]);
+      setState(() {
+        for (var sequence in data["sequences"].keys){
+          _sequences[sequence] = [];
+          for (var effect in data["sequences"][sequence]){
+            Effect newEffect = SolidColorEffect(Duration(microseconds: effect["start"]), Duration(microseconds: effect["end"]), Color(effect["color"]));
+            _sequences[sequence]!.add(newEffect);
+            if (_sequences[sequence]!.length > 1){
+              newEffect.previousEffect = _sequences[sequence]![_sequences[sequence]!.length - 2];
+              _sequences[sequence]![_sequences[sequence]!.length - 2].nextEffect = newEffect;
+            }
+          }
+        }
+        for (var led in data["leds"].keys)
+          _ledToSequences[int.parse(led)] = data["leds"][led];
+      });
+    });
     super.initState();
     _initWaveform();
     player = AudioPlayer();
@@ -508,7 +585,8 @@ class _PatternViewPageState extends State<PatternViewPage> {
         }
       }
     }
-    sendPackage(jsonEncode(payload));
+    sendPacket(jsonEncode(payload));
+    print(payload);
   }
 
   void _onLedTapped(int index) {
@@ -649,9 +727,8 @@ class _PatternViewPageState extends State<PatternViewPage> {
       for (var effect in _sequences[sequence]!)
         if (effect is SolidColorEffect)
           data["sequences"][sequence].add({"type": "SolidColorEffect", "start": effect.start.inMicroseconds, "end": effect.end.inMicroseconds, "color": effect.color.value});
-      DataStorage().writeData(jsonEncode(data), "patterns/${widget.title}");
+      DataStorage().writeData(jsonEncode(data), "patterns/${widget.title}.json");
     }
-    print("lots of data saved AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
   }
   
   @override
@@ -660,7 +737,25 @@ class _PatternViewPageState extends State<PatternViewPage> {
       appBar: AppBar(
         title: Text(widget.title),
         leading: BackButton(),
-        surfaceTintColor: Colors.transparent
+        surfaceTintColor: Colors.transparent,
+        actions: [
+          Text("Проверка"),
+          Switch(
+          value: isTesting,
+          onChanged: (bool value) {
+            if (value) {
+              for (var led in _leds)
+                led.color = Colors.white;}
+            else {
+              for (var led in _leds)
+                led.color = Colors.black;
+              _onPositionChanged(_position!);
+            }
+            setState(() {
+              isTesting = value;
+            });
+          },
+        ),]
       ),
       body: Center(
         child: Column(
@@ -717,11 +812,12 @@ class _PatternViewPageState extends State<PatternViewPage> {
                 child: ListView(
                   children: [
                     for (var costume in _costumes.keys)
-                      IconButton(
+                      TextButton(
                         onPressed: () => setState(() {
                           _costume = _costumes[costume]!;
                         }),
-                        icon: Icon(Icons.numbers)
+                        child: Text((_costumes.keys.toList().indexOf(costume)+1).toString()),
+                        style: ButtonStyle(foregroundColor: MaterialStateProperty.all(Colors.grey))
                       )
                   ]
                 ),
@@ -759,9 +855,37 @@ class _PatternViewPageState extends State<PatternViewPage> {
                       height: 50.0,
                       child: Row(
                         children: _selectedEffect == null ? [
-                          Expanded(child: Center(child: Text("No effect selected")))
+                          Expanded(child: Center(child: Text("Эффект не выбран")))
                         ]
                         : [
+                            IconButton(
+                            icon: Icon(Icons.delete_forever),
+                            onPressed: () => showDialog(
+                              context: context,
+                              builder: (context) => AlertDialog(
+                                title: Text("Удалить эффект?"),
+                                // content: Text(_selectedEffect.toString()),
+                                actions: [
+                                  TextButton(onPressed: () => Navigator.of(context).pop(), child: Text("нет")),
+                                  TextButton(onPressed: () => {_onEffectDeleted(_selectedEffect!), Navigator.of(context).pop()}, child: Text("да"))
+                                ]
+                              )
+                            ),
+                          ),
+                          Spacer(),
+                            IconButton(
+                            icon: Transform.scale(
+                              scaleX: -1,
+                              child: Icon(
+                                Icons.start, 
+                              ),
+                            ),
+                            onPressed: () => setState(() {
+                              _selectedEffect = null;
+                            }),
+                          ),
+                          Spacer(),
+                          
                           IconButton(
                             icon: Icon(Icons.check),
                             onPressed: () => setState(() {
@@ -769,29 +893,23 @@ class _PatternViewPageState extends State<PatternViewPage> {
                             }),
                           ),
                           Spacer(),
-                          Text(_selectedEffect.toString()),
-                          Spacer(),
-                          IconButton(
-                            icon: Icon(Icons.delete_forever),
-                            onPressed: () => showDialog(
-                              context: context,
-                              builder: (context) => AlertDialog(
-                                title: Text("delete?"),
-                                content: Text(_selectedEffect.toString()),
-                                actions: [
-                                  TextButton(onPressed: () => Navigator.of(context).pop(), child: Text("no")),
-                                  TextButton(onPressed: () => {_onEffectDeleted(_selectedEffect!), Navigator.of(context).pop()}, child: Text("yes"))
-                                ]
-                              )
-                            ),
-                          ),
+                          
+                          // Text('${_selectedEffect!.start.inMinutes.toString().padLeft(2, '0')}.${(_selectedEffect!.start.inSeconds % 60).toString().padLeft(2, '0')}.${(_selectedEffect!.start.inMilliseconds % 1000).toString().padLeft(4, '0')} - ${_selectedEffect!.end.inMinutes.toString().padLeft(2, '0')}.${(_selectedEffect!.end.inSeconds % 60).toString().padLeft(2, '0')}.${(_selectedEffect!.end.inMilliseconds % 1000).toString().padLeft(4, '0')}'),
                           IconButton(
                             icon: Icon(Icons.palette),
                             onPressed: () => {
                               setState(() {_inEffectSettings = true;}),
                               _onColorChanged(_selectedEffect!.getColor(_selectedEffect!.start))
                               },
-                          )
+                          ),
+                          Spacer(),
+                          IconButton(
+                            icon: Icon(Icons.copy),
+                            onPressed: () => setState(() {
+                              _selectedEffect = null;
+                            }),
+                          ),
+                          
                         ],
                       ),
                     ),
@@ -898,7 +1016,6 @@ class _PatternViewPageState extends State<PatternViewPage> {
                                               left: constraints.maxWidth * (effect.start.inMicroseconds / _duration!.inMicroseconds),
                                               child: GestureDetector(
                                                 onLongPress: () => {
-
                                                   setState(() {_selectedEffect = effect;})
                                                 },
                                                 onHorizontalDragUpdate: (details) => _onEffectDragged(effect, details, constraints.maxWidth),
@@ -906,6 +1023,7 @@ class _PatternViewPageState extends State<PatternViewPage> {
                                                   _dragOfset = details.localPosition.dx;
                                                   _draggedEffectWidth = constraints.maxWidth * (effect.end.inMicroseconds / _duration!.inMicroseconds) - constraints.maxWidth * (effect.start.inMicroseconds / _duration!.inMicroseconds);
                                                 }),
+                                                onHorizontalDragEnd: (details) => saveData(),
                                                 child: Container(
                                                   width: constraints.maxWidth * (effect.end.inMicroseconds / _duration!.inMicroseconds) - constraints.maxWidth * (effect.start.inMicroseconds / _duration!.inMicroseconds),
                                                   height: 100,
@@ -948,12 +1066,15 @@ class _PatternViewPageState extends State<PatternViewPage> {
                           expandedInsets: EdgeInsets.all(8.0),
                           initialSelection: _selectedSequence,
                           onSelected: (value) => {
+                            if (value != "Добавить")
                             setState(() {
                                 _selectedEffect = null;
                                 _selectedSequence = value!;
-                                _ledToSequences[_selectedId!] = _selectedSequence;
+                                if (_selectedId != null)
+                                  _ledToSequences[_selectedId!] = _selectedSequence;
                             }),
-                            _onPositionChanged(_position!)
+                            _onPositionChanged(_position!),
+                            saveData()
                           },
                           dropdownMenuEntries: [
                             for (var sequence in _sequences.keys)
@@ -992,16 +1113,33 @@ class _PatternViewPageState extends State<PatternViewPage> {
                                       ],
                                     ),
                                   )),
-                          ])
+                          ] + [DropdownMenuEntry(value: "Добавить", label: "Добавить",  labelWidget: Row(children: [Text("добавить"), IconButton(onPressed: () => {}, icon: Icon(Icons.add))],))])
                   ],
                 ): Column(
                   children: [
-                    IconButton(
-                      onPressed: () => {
-                        setState(() {_inEffectSettings = false;}),
-                        _onPositionChanged(_position!)
-                      },
-                      icon: Icon(Icons.check)
+                    Row(
+                      children: [
+                        IconButton(
+                          onPressed: () => {
+                          },
+                          icon: Spacer()
+                        ),
+                        Spacer(),
+                        IconButton(
+                          onPressed: () => {
+                            setState(() {_inEffectSettings = false;}),
+                            _onPositionChanged(_position!)
+                          },
+                          icon: Icon(Icons.check)
+                        ),
+                        Spacer(),
+                        IconButton(
+                            icon: Icon(Icons.copy),
+                            onPressed: () => setState(() {
+                              _selectedEffect = null;
+                            }),
+                          ),
+                      ],
                     ),
                     _selectedEffect!.settings(_onColorChanged, saveData),
                   ],
@@ -1018,7 +1156,7 @@ class _PatternViewPageState extends State<PatternViewPage> {
   }
 }
 
-void sendPackage(data)  {
+void sendPacket(data)  {
    RawDatagramSocket.bind(InternetAddress.anyIPv4, 4210).then((RawDatagramSocket udpSocket) {
     udpSocket.broadcastEnabled = true;
     udpSocket.send(utf8.encode(data), InternetAddress("192.168.43.255"), 4210);
@@ -1123,9 +1261,14 @@ class DataStorage {
     return directory.path;
   }
 
-  Future<File> get _localFile async {
+  Future<List<String>> getPatterns() async {
     final path = await _localPath;
-    return File('$path/test.json');
+    final fileList = Directory(path + "/patterns").listSync();
+    List<String> stringList = [];
+    for (var file in fileList) {
+      stringList.add(await (file as File).readAsString());
+    }
+    return stringList;
   }
 
   Future<File> writeData(String data, String route) async {
